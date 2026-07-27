@@ -1,0 +1,5 @@
+node_modules/
+build/
+memory-bank/
+.env
+*.log
