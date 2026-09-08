@@ -104,24 +104,61 @@ console.log('\n📋 Generating release notes...');
 const logRange = previousTag ? `${previousTag}..HEAD` : 'HEAD';
 const commits = run(`git log ${logRange} --pretty=format:"- %s" --no-merges`);
 
-const releaseNotes = `# ${tag}
-
-## What's Changed
-
-${commits || '- Initial release'}
-
-## How to Use
-
-\`\`\`bash
-git clone https://github.com/${repo}.git
-cd majrooo-mcp-devkit
-npm install
-npm run build
-node build/index.js
-\`\`\`
-
-See [README.md](https://github.com/${repo}#readme) for full documentation.
-`;
+const isFirstRelease = !previousTag;
+const releaseNotes = isFirstRelease
+  ? [
+      '# ' + tag + ' — Initial Release',
+      '',
+      'MCP server that provides safe command execution, code analysis and',
+      'refactoring tools for AI assistants (Cline, Claude Desktop).',
+      '',
+      "## What's Included",
+      '',
+      '### 6 Tools',
+      '- `run_safe_command` — default command executor with safety checks',
+      '- `run_destructive_command` — dangerous commands with explicit confirmation',
+      '- `read_log_slice` — read truncated log files',
+      '- `run_command_grep` — Windows-friendly grep replacement',
+      '- `list_allowed_roots` — discover registered project roots',
+      '- `resolve_cwd` — verify paths against allowed roots',
+      '',
+      '### Safety Features',
+      '- Dangerous-pattern blacklist (destructive git, rm -rf, curl|bash...)',
+      '- Directory-escape detection',
+      '- Write-target checks for redirects',
+      '- Missing destructive target guard',
+      '- Pre-commit & pre-push hooks',
+      '',
+      '### License',
+      'GPL-3.0-or-later — see [LICENSE](LICENSE) for details.',
+      '',
+      '## Quick Start',
+      '',
+      '```bash',
+      'git clone https://github.com/Majrooo/majrooo-mcp-devkit.git',
+      'cd majrooo-mcp-devkit',
+      'npm install',
+      'npm run build',
+      'node build/index.js',
+      '```',
+      '',
+      'See [README.md](https://github.com/Majrooo/majrooo-mcp-devkit#readme) for full documentation.',
+      '',
+      '---',
+      '',
+      "## What's Changed",
+      '',
+      commits || '- Initial release',
+    ].join('\n')
+  : [
+      '# ' + tag,
+      '',
+      "## What's Changed",
+      '',
+      commits || '- No changes listed',
+      '',
+      'See [README.md](https://github.com/Majrooo/majrooo-mcp-devkit#readme) for documentation.',
+    ].join('\n');
 
 console.log(releaseNotes);
 
