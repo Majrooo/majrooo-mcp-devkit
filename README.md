@@ -1,4 +1,4 @@
-# majrooo-mcp-devkit — Safe Command Runner
+# majrooo-mcp-devkit — MCP DevKit: Safe Commands + Refactoring Tools
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
@@ -8,7 +8,7 @@
 > **Repository Access:** PUBLIC  
 > **Version:** 0.1.0 · **Tests:** 203 passing · **License:** GPL-3.0-or-later
 
-MCP server that provides safe command execution tools for Cline/Claude Desktop.
+MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
 ## Tools
 
