@@ -1,5 +1,30 @@
 node_modules/
 build/
 memory-bank/
+docs-private/
+.clinerules
 .env
 *.log
+
+# secrets / credentials
+*.key
+*.pem
+*.p12
+.git-credentials
+.netrc
+
+# IDE
+/.idea/
+/.vscode/
+
+# editor temp
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# npm
+npm-debug.log*

@@ -1,14 +1,17 @@
 {
-  "name": "my-mcp-server",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "majrooo-mcp-devkit",
+  "version": "0.1.0",
+  "description": "MCP devkit — safe command execution, code analysis and refactoring tools for AI assistants",
+  "repository": "https://github.com/Majrooo/majrooo-mcp-devkit",
+  "main": "build/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "test": "vitest run src/__tests__",
+    "test:watch": "vitest src/__tests__"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -16,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
