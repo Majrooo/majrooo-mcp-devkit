@@ -914,6 +914,27 @@ server.tool(
   },
 );
 
+// ── Tool: list_feedback ────────────────────────────────────
+
+server.tool(
+  "list_feedback",
+  "List feedback entries from .mcp/FEEDBACK.md. Optionally filter by type, tool name, or status. " +
+  "Use this to check existing feedback before creating new entries, or to review reported issues.",
+  {
+    type: z.enum(["bug", "improvement", "feature_request"]).optional().describe("Filter by feedback type"),
+    tool: z.string().optional().describe("Filter by tool name"),
+    status: z.enum(["open", "closed"]).optional().describe("Filter by status"),
+  },
+  async (filters) => {
+    const root = ALLOWED_ROOTS[0] ?? process.cwd();
+    const entries = readFeedbackEntries(root, filters);
+    await writeAuditLog({ tool: "list_feedback", filters, resultCount: entries.length });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ total: entries.length, entries }, null, 2) }],
+    };
+  },
+);
+
 // ── Transport ──────────────────────────────────────────────
 
 const transport = new StdioServerTransport();

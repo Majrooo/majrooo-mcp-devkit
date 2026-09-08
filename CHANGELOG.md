@@ -19,8 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `generate_module_skeleton` — generate module files by extracting symbols from source
   - `verify_refactor_safety` — semantic diff with 5 checks (function count, signatures, exports, imports, comment ratio)
 - `report_tool_feedback` — agent feedback tool for bugs, improvements, feature requests (writes to `.mcp/FEEDBACK.md`, idempotent, project-protected)
+- `list_feedback` — list feedback entries with optional filters (type, tool, status)
 - Test fixtures (`src/__tests__/fixtures/`) with Rust, TypeScript, Python test data
-- 64 new tests (total 211, up from 147)
+- 66 new tests (total 213, up from 147)
 - Shared parsing helpers exported from `src/symbols.ts` (tokenizer, bracket matching, annotation detection)
 - `tsconfig.json`: exclude test fixtures from compilation
 

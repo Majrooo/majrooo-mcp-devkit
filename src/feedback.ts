@@ -134,7 +134,13 @@ export function reportToolFeedback(
   return { written: true, id, filePath };
 }
 
-export function readFeedbackEntries(projectRoot: string): FeedbackEntry[] {
+export interface FeedbackListOptions {
+  type?: "bug" | "improvement" | "feature_request";
+  tool?: string;
+  status?: "open" | "closed";
+}
+
+export function readFeedbackEntries(projectRoot: string, options: FeedbackListOptions = {}): FeedbackEntry[] {
   const filePath = path.join(projectRoot, FEEDBACK_DIR, FEEDBACK_FILE);
   let content: string;
   try { content = fs.readFileSync(filePath, "utf-8"); } catch { return []; }
@@ -152,5 +158,10 @@ export function readFeedbackEntries(projectRoot: string): FeedbackEntry[] {
     const desc = block.split("\n\n")[1]?.trim() ?? "";
     entries.push({ id, date, tool, type, status, title, description: desc });
   }
-  return entries;
+  // Apply filters
+  let filtered = entries;
+  if (options.type) filtered = filtered.filter((e) => e.type === options.type);
+  if (options.tool) filtered = filtered.filter((e) => e.tool === options.tool);
+  if (options.status) filtered = filtered.filter((e) => e.status === options.status);
+  return filtered;
 }

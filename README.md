@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 211 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 213 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -154,6 +154,16 @@ Report a bug, improvement, or feature request about any MCP tool. Writes structu
 | `reproduction` | string | — | Steps to reproduce (optional) |
 | `expected` | string | — | What you expected (optional) |
 | `suggestion` | string | — | Suggested fix or improvement (optional) |
+
+### `list_feedback`
+
+List feedback entries from `.mcp/FEEDBACK.md`. Optionally filter by type, tool name, or status. Use this to check existing feedback before creating new entries.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `type` | string | — | Filter: `"bug"`, `"improvement"`, or `"feature_request"` |
+| `tool` | string | — | Filter by tool name |
+| `status` | string | — | Filter: `"open"` or `"closed"` |
 
 ## Configuration
 

@@ -108,6 +108,24 @@ describe("reportToolFeedback", () => {
     expect(readFeedbackEntries(tmp)).toHaveLength(0);
   });
 
+  it("filter by type", () => {
+    tmp = tmpDir();
+    reportToolFeedback(tmp, "proj", "srv", "1.0.0", { type: "bug", tool: "t1", title: "Bug one", description: "d" });
+    reportToolFeedback(tmp, "proj", "srv", "1.0.0", { type: "improvement", tool: "t2", title: "Improve one", description: "d" });
+    expect(readFeedbackEntries(tmp, { type: "bug" })).toHaveLength(1);
+    expect(readFeedbackEntries(tmp, { type: "improvement" })).toHaveLength(1);
+    expect(readFeedbackEntries(tmp, { type: "feature_request" })).toHaveLength(0);
+  });
+
+  it("filter by tool", () => {
+    tmp = tmpDir();
+    reportToolFeedback(tmp, "proj", "srv", "1.0.0", { type: "bug", tool: "alpha", title: "Alpha bug", description: "d" });
+    reportToolFeedback(tmp, "proj", "srv", "1.0.0", { type: "bug", tool: "beta", title: "Beta bug", description: "d" });
+    expect(readFeedbackEntries(tmp, { tool: "alpha" })).toHaveLength(1);
+    expect(readFeedbackEntries(tmp, { tool: "beta" })).toHaveLength(1);
+    expect(readFeedbackEntries(tmp, { tool: "gamma" })).toHaveLength(0);
+  });
+
   it("reproduction/expected/suggestion fields included", () => {
     tmp = tmpDir();
     reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
