@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-147%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-168%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 147 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 168 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution tools for Cline/Claude Desktop.
 
@@ -71,6 +71,29 @@ Execute a command and return only lines matching a pattern (case-insensitive reg
 | `pattern` | string | Regex pattern to filter lines (case-insensitive) |
 | `cwd` | string | Working directory (default: primary root) |
 | `timeoutMs` | number | 60000 | Command timeout (1000–600000 ms) — raise for long jest runs |
+
+### `universal_find_references`
+
+Find all occurrences of a symbol across a workspace. Returns structured output with file, line, column, context, and optional role annotations. Use this **before any refactoring session** to understand what will break when a symbol is renamed or moved.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `symbol` | string | — | Symbol to search for (word-boundary match) |
+| `cwd` | string | primary root | Workspace root to search |
+| `fileExtensions` | string[] | common source extensions | Restrict to these extensions |
+| `excludePatterns` | string[] | `.git`, `node_modules`, `target`, ... | Directories to skip |
+| `contextLines` | number | 1 | Lines of context around each match |
+| `language` | string | — (disabled) | Optional: `"rust"`, `"typescript"`, `"python"`, or `"cpp"` — enables role detection (declaration/import/usage) |
+
+### `extract_code_block`
+
+Read the full text of a function, struct, class, or method from a file. Returns precise line range + content. Includes leading annotations (`#[derive]`, `@decorator`, `/// doc comments`). String/comment-aware bracket matching prevents false depth counts from braces inside strings or comments.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `file` | string | — | Source file path (must resolve inside allowed root) |
+| `symbol` | string | — | Symbol name to extract |
+| `contextLines` | number | 0 | Extra lines before/after the block |
 
 ## Configuration
 

@@ -20,9 +20,9 @@
   * `src/redirect.ts` — redirect-target reporting: reads back files written via `>` / `>>` / `2>` and shows their tail in the response.
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
-* **Testing:** Vitest — `npm test` (147 tests across `output`, `safety`, `format`, `redirect` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Testing:** Vitest — `npm test` (168 tests across `output`, `safety`, `format`, `redirect`, `symbols` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
-  * `src/` — TypeScript sources (`index.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `__tests__/`)
+  * `src/` — TypeScript sources (`index.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
   * `README.md`, `PROJECT_CONTEXT.md`, `package.json`, `tsconfig.json`
 
@@ -34,6 +34,8 @@
 4. `run_command_grep` — run a command and return only lines matching a case-insensitive regex (Windows grep replacement).
 5. `list_allowed_roots` — list registered roots / concrete projects usable as `cwd` (configuration only).
 6. `resolve_cwd` — verify a path or friendly project name against the allowed roots (configuration only); returns `exists` indicating whether the resolved directory exists on disk.
+7. `universal_find_references` — find all occurrences of a symbol across a workspace (read-only, structured output with optional language-aware role detection).
+8. `extract_code_block` — extract the full text of a function/struct/class from a file (annotation-aware, string/comment-safe bracket matching).
 
 ## Configuration (environment)
 
@@ -58,7 +60,7 @@
 |---|---|
 | `npm install` | Install dependencies |
 | `npm run build` | Compile TypeScript (`tsc` → `build/`) |
-| `npm test` | Run Vitest unit tests (147 tests, `src/__tests__` only) |
+| `npm test` | Run Vitest unit tests (168 tests, `src/__tests__` only) |
 | `npm run test:watch` | Vitest watch mode (`src/__tests__`) |
 | `node build/index.js` | Run the MCP server (STDIO) |
 | `npm ls --depth=0` | List installed dependencies |

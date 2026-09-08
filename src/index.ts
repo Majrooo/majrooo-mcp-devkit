@@ -43,6 +43,7 @@ import {
 import { stripAnsi, withUtf8Encoding } from "./output.js";
 import { buildRedirectNote } from "./redirect.js";
 import { composeFailureMessage, extractExecFailure, formatCommandError } from "./format.js";
+import { universalFindReferences, extractCodeBlock } from "./symbols.js";
 
 const execAsync = promisify(exec);
 
@@ -710,6 +711,84 @@ server.tool(
           ),
         },
       ],
+    };
+  },
+);
+
+// ── Tool: universal_find_references ────────────────────────
+
+server.tool(
+  "universal_find_references",
+  "Find all occurrences of a symbol across a workspace. Structured output with file, line, column, context. " +
+  "Optional language-aware mode (rust/typescript/python/cpp) adds role annotations: declaration, import, or usage. " +
+  "Use this tool BEFORE any refactoring session to understand what will break when a symbol is renamed or moved.",
+  {
+    symbol: z.string().describe("Symbol to search for (word-boundary match)"),
+    cwd: z.string().optional().describe("Workspace root to search (default: primary project root)"),
+    fileExtensions: z.array(z.string()).optional().describe("Restrict to these extensions (default: common source extensions)"),
+    excludePatterns: z.array(z.string()).optional().describe("Directories to skip (default: .git, node_modules, target, build, dist, __pycache__)"),
+    contextLines: z.number().optional().describe("Lines of context around each match (default: 1)"),
+    language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Optional language-aware mode for role detection"),
+  },
+  async ({ symbol, cwd, fileExtensions, excludePatterns, contextLines, language }) => {
+    // Resolve cwd
+    let resolvedCwd = cwd;
+    let registration: Registration | undefined;
+    if (cwd) {
+      const bare = cwd.trim();
+      let target = cwd;
+      if (!bare.includes("\\") && !bare.includes("/")) {
+        const alias = findAliasByName(bare);
+        if (alias) target = alias.path;
+      }
+      const resolved = resolveCwdRequested(target);
+      if (!resolved.ok) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: resolved.error }, null, 2) }],
+          isError: true,
+        };
+      }
+      resolvedCwd = resolved.cwd;
+      registration = resolved.registration;
+    } else {
+      resolvedCwd = ALLOWED_ROOTS[0] ?? process.cwd();
+    }
+
+    const result = universalFindReferences(symbol, resolvedCwd, {
+      fileExtensions,
+      excludePatterns,
+      contextLines,
+      language,
+    });
+
+    // Audit log
+    await writeAuditLog({ tool: "universal_find_references", symbol, cwd: resolvedCwd, totalMatches: result.totalMatches });
+
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+// ── Tool: extract_code_block ───────────────────────────────
+
+server.tool(
+  "extract_code_block",
+  "Read the full text of a function, struct, class, or method from a file. Returns precise line range + content. " +
+  "Includes leading annotations (#[derive], @decorator, /// doc comments). " +
+  "String/comment-aware bracket matching prevents false depth counts from braces inside strings or comments.",
+  {
+    file: z.string().describe("Source file path (must resolve inside allowed root)"),
+    symbol: z.string().describe("Symbol name to extract"),
+    contextLines: z.number().optional().describe("Extra lines before/after the block (default: 0)"),
+  },
+  async ({ file, symbol, contextLines }) => {
+    const result = extractCodeBlock(file, symbol, { contextLines });
+
+    await writeAuditLog({ tool: "extract_code_block", file, symbol });
+
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
   },
 );
