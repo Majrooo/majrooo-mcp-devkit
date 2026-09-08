@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-203%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 192 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 203 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution tools for Cline/Claude Desktop.
 
@@ -130,6 +130,16 @@ Generate a new module file with extracted symbols from a source file. Returns er
 | `language` | string | auto-detect | `"rust"`, `"typescript"`, `"python"` |
 | `dryRun` | boolean | true | Preview only |
 | `overwrite` | boolean | false | Allow overwriting existing file |
+
+### `verify_refactor_safety`
+
+Semantic diff between old and new code. Catches accidental deletions before compilation. Checks: function count, signatures, export count, imports, comment ratio. Intentionally conservative — renames appear as errors requiring explicit confirmation.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `before` | string | — | Original code text |
+| `after` | string | — | New code text |
+| `language` | string | auto-detect | `"rust"`, `"typescript"`, `"python"`, `"cpp"` |
 
 ## Configuration
 

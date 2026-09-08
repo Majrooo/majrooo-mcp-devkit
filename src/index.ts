@@ -47,6 +47,7 @@ import { universalFindReferences, extractCodeBlock } from "./symbols.js";
 import { splitFileByDeclarations } from "./split.js";
 import { batchApplyEdits } from "./batch.js";
 import { generateModuleSkeleton } from "./skeleton.js";
+import { verifyRefactorSafety } from "./verify.js";
 
 const execAsync = promisify(exec);
 
@@ -864,6 +865,25 @@ server.tool(
   async ({ modulePath, symbols, sourceFile, language, dryRun, overwrite }) => {
     const result = generateModuleSkeleton(modulePath, symbols, sourceFile, { language, dryRun, overwrite });
     await writeAuditLog({ tool: "generate_module_skeleton", modulePath, symbols, dryRun: dryRun ?? true });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+  },
+);
+
+// ── Tool: verify_refactor_safety ───────────────────────────
+
+server.tool(
+  "verify_refactor_safety",
+  "Semantic diff between old and new code. Catches accidental deletions before compilation. " +
+  "Checks: function count, signatures, export count, imports, comment ratio. " +
+  "Intentionally conservative — renames appear as errors requiring explicit confirmation.",
+  {
+    before: z.string().describe("Original code text"),
+    after: z.string().describe("New code text"),
+    language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Language (auto-detected from content)"),
+  },
+  async ({ before, after, language }) => {
+    const result = verifyRefactorSafety(before, after, { language });
+    await writeAuditLog({ tool: "verify_refactor_safety", safe: result.safe, checksCount: result.checks.length });
     return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
   },
 );
