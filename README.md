@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-213%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 213 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 237 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -164,6 +164,31 @@ List feedback entries from `.mcp/FEEDBACK.md`. Optionally filter by type, tool n
 | `type` | string | — | Filter: `"bug"`, `"improvement"`, or `"feature_request"` |
 | `tool` | string | — | Filter by tool name |
 | `status` | string | — | Filter: `"open"` or `"closed"` |
+
+### `close_feedback`
+
+Close an existing feedback entry by ID — sets status to `"closed"` and optionally adds resolution text. Use this to mark feedback items as resolved after fixing them.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `id` | string | — | The feedback entry ID to close (from `list_feedback` output) |
+| `resolution` | string | — | Resolution note explaining how the issue was addressed (optional) |
+
+### `list_tools`
+
+List all available MCP tools with descriptions. Use this to discover tools before starting a task. Filterable by category.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `category` | string | — | Filter: `"command"`, `"refactoring"`, or `"feedback"` |
+
+### `help_tool`
+
+Get detailed help for a specific MCP tool — parameters, types, defaults, and description.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `tool` | string | — | Tool name to get help for |
 
 ## Configuration
 

@@ -29,16 +29,18 @@ export interface FeedbackEntry {
   date: string;
   tool: string;
   type: "bug" | "improvement" | "feature_request";
-  status: "open";
+  status: "open" | "closed";
   title: string;
   description: string;
   reproduction?: string;
   expected?: string;
   suggestion?: string;
+  resolution?: string;
 }
 
 export interface FeedbackResult { written: boolean; id: string; filePath: string; reason?: string; }
 export interface FeedbackError { error: string; }
+export interface CloseResult { updated: boolean; id: string; filePath: string; }
 
 function buildHeader(project: string, server: string, version: string): string {
   return `<!-- project=${project} server=${server} v${version} -->`;
@@ -71,6 +73,7 @@ function formatEntry(entry: FeedbackEntry): string {
   if (entry.reproduction) lines.push("", `**Reproduction:** ${entry.reproduction}`);
   if (entry.expected) lines.push(`**Expected:** ${entry.expected}`);
   if (entry.suggestion) lines.push(`**Suggestion:** ${entry.suggestion}`);
+  if (entry.resolution) lines.push(`**Resolution:** ${entry.resolution}`);
   return lines.join("\n");
 }
 
@@ -155,8 +158,9 @@ export function readFeedbackEntries(projectRoot: string, options: FeedbackListOp
     const date = (block.match(/> \*\*date:\*\* (.+)/) ?? [])[1]?.trim() ?? "";
     const tool = (block.match(/> \*\*tool:\*\* (.+)/) ?? [])[1]?.trim() ?? "";
     const status = (block.match(/> \*\*status:\*\* (.+)/) ?? [])[1]?.trim() as FeedbackEntry["status"] ?? "open";
+    const resolution = (block.match(/> \*\*resolution:\*\* (.+)/) ?? [])[1]?.trim();
     const desc = block.split("\n\n")[1]?.trim() ?? "";
-    entries.push({ id, date, tool, type, status, title, description: desc });
+    entries.push({ id, date, tool, type, status, title, description: desc, resolution });
   }
   // Apply filters
   let filtered = entries;
@@ -164,4 +168,49 @@ export function readFeedbackEntries(projectRoot: string, options: FeedbackListOp
   if (options.tool) filtered = filtered.filter((e) => e.tool === options.tool);
   if (options.status) filtered = filtered.filter((e) => e.status === options.status);
   return filtered;
+}
+
+/**
+ * Close an existing feedback entry by ID — sets status to "closed" and optionally adds resolution text.
+ * Returns error if the entry is not found or already closed.
+ */
+export function closeFeedback(
+  projectRoot: string,
+  id: string,
+  resolution?: string,
+): CloseResult | FeedbackError {
+  const filePath = path.join(projectRoot, FEEDBACK_DIR, FEEDBACK_FILE);
+  let content: string;
+  try { content = fs.readFileSync(filePath, "utf-8"); } catch {
+    return { error: `Feedback file not found: ${filePath}` };
+  }
+  const idMarker = `> **id:** ${id}`;
+  if (!content.includes(idMarker)) {
+    return { error: `Entry with id '${id}' not found` };
+  }
+
+  // Find the status line after the id marker in this block
+  const blockStart = content.indexOf(idMarker);
+  const statusLineStart = content.indexOf("> **status:** ", blockStart);
+  if (statusLineStart === -1 || statusLineStart > blockStart + 500) {
+    return { error: `Could not find status line for entry '${id}'` };
+  }
+  const beforeStatus = content.slice(0, statusLineStart);
+  const afterStatus = content.slice(statusLineStart);
+  // Replace only the first "status: open" after this id
+  const closedLine = resolution
+    ? `> **status:** closed\n> **resolution:** ${resolution}`
+    : `> **status:** closed`;
+  const newAfterStatus = afterStatus.replace(
+    /^> \*\*status:\*\* open/m,
+    closedLine,
+  );
+  if (newAfterStatus === afterStatus) {
+    return { error: `Entry '${id}' is already closed` };
+  }
+  const newContent = beforeStatus + newAfterStatus;
+  try { fs.writeFileSync(filePath, newContent, "utf-8"); } catch {
+    return { error: `Cannot write to: ${filePath}` };
+  }
+  return { updated: true, id, filePath };
 }

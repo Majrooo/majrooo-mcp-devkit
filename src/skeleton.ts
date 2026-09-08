@@ -18,7 +18,7 @@
 // src/skeleton.ts — generate a new module file with correct imports, declarations and visibility.
 import fs from "fs";
 import path from "path";
-import { extractCodeBlock } from "./symbols.js";
+import { extractCodeBlock, escapeRegex } from "./symbols.js";
 import { detectLanguage } from "./split.js";
 
 export interface SkeletonOptions {
@@ -44,6 +44,7 @@ function extractImports(sourceContent: string, lang: string): string[] {
   const lines = sourceContent.split(/\r?\n/);
   const imports: string[] = [];
   for (const line of lines) {
+    if (line.length === 0 || /^\s/.test(line)) continue; // skip empty / indented lines
     const trimmed = line.trim();
     if (lang === "rust" && /^use\s+/.test(trimmed)) imports.push(line);
     else if (lang === "typescript" && /^import\s+/.test(trimmed)) imports.push(line);
@@ -51,6 +52,26 @@ function extractImports(sourceContent: string, lang: string): string[] {
     else if (lang === "cpp" && /^#include\s+/.test(trimmed)) imports.push(line);
   }
   return imports;
+}
+
+/** Check if a line is a declaration OF the given symbol (not just a usage). */
+function isDeclarationOf(line: string, symbol: string, lang: string): boolean {
+  const esc = escapeRegex(symbol);
+  if (lang === "rust") {
+    // pub struct X / fn X / impl X / pub(crate) fn X etc.
+    return new RegExp(`^(?:pub(?:\\s*\\([^)]*\\))?\\s+)?(?:fn|struct|enum|trait|type|const|static|impl|mod)\\s+${esc}\\b`).test(line)
+      || new RegExp(`^impl\\s+${esc}\\b`).test(line);
+  }
+  if (lang === "typescript") {
+    return new RegExp(`^(?:export\\s+)?(?:function|class|interface|type|const|enum|async\\s+function)\\s+${esc}\\b`).test(line);
+  }
+  if (lang === "python") {
+    return new RegExp(`^(?:class|def|async\\s+def)\\s+${esc}\\b`).test(line);
+  }
+  if (lang === "cpp") {
+    return new RegExp(`^(?:class|struct)\\s+${esc}\\b`).test(line);
+  }
+  return false;
 }
 
 export function generateModuleSkeleton(
@@ -82,16 +103,27 @@ export function generateModuleSkeleton(
     return { error: `Symbols not found in sourceFile`, unknownSymbols: unknowns };
   }
 
-  // Extract blocks
+  // Extract blocks — filter to declaration matches only (skip usage sites)
   const parts: string[] = [];
   for (const sym of symbols) {
     const result = extractCodeBlock(sourceFile, sym);
     if ("error" in result) continue;
-    if ("matches" in result) {
-      for (const m of result.matches) parts.push(m.text);
-    } else {
-      parts.push(result.text);
-    }
+    const allMatches = "matches" in result ? result.matches : [result];
+    // Keep only matches where the symbol is actually declared
+    const declMatches = allMatches.filter((m) => {
+      const lines = m.text.split("\n");
+      // Skip matches that originate from import/use statements
+      const firstCodeLine = lines.find((l) => l.trim() !== "" && !/^\/\/|^\/\*|^\*|^#\[|^@|^"""/.test(l.trim()));
+      if (firstCodeLine && /^(use|import|from)\s+/.test(firstCodeLine.trim())) return false;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^\/\/|^\/\*|^\*|^#\[|^@|^"""/.test(trimmed)) continue;
+        if (isDeclarationOf(trimmed, sym, lang)) return true;
+      }
+      return false;
+    });
+    const effective = declMatches.length > 0 ? declMatches : allMatches;
+    for (const m of effective) parts.push(m.text);
   }
 
   // Build content

@@ -43,12 +43,13 @@ import {
 import { stripAnsi, withUtf8Encoding } from "./output.js";
 import { buildRedirectNote } from "./redirect.js";
 import { composeFailureMessage, extractExecFailure, formatCommandError } from "./format.js";
-import { universalFindReferences, extractCodeBlock } from "./symbols.js";
+import { universalFindReferences, extractCodeBlock, type FileReferences } from "./symbols.js";
 import { splitFileByDeclarations } from "./split.js";
 import { batchApplyEdits } from "./batch.js";
 import { generateModuleSkeleton } from "./skeleton.js";
 import { verifyRefactorSafety } from "./verify.js";
-import { reportToolFeedback, readFeedbackEntries } from "./feedback.js";
+import { reportToolFeedback, readFeedbackEntries, closeFeedback } from "./feedback.js";
+import { registerToolInfo, listToolInfos, getToolInfo } from "./tool-registry.js";
 
 const execAsync = promisify(exec);
 
@@ -736,7 +737,7 @@ server.tool(
     language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Optional language-aware mode for role detection"),
   },
   async ({ symbol, cwd, fileExtensions, excludePatterns, contextLines, language }) => {
-    // Resolve cwd
+    // Resolve cwd — when not specified, search ALL allowed roots
     let resolvedCwd = cwd;
     let registration: Registration | undefined;
     if (cwd) {
@@ -755,22 +756,35 @@ server.tool(
       }
       resolvedCwd = resolved.cwd;
       registration = resolved.registration;
-    } else {
-      resolvedCwd = ALLOWED_ROOTS[0] ?? process.cwd();
     }
 
-    const result = universalFindReferences(symbol, resolvedCwd, {
-      fileExtensions,
-      excludePatterns,
-      contextLines,
-      language,
-    });
+    // Search: single root or all roots
+    const roots = resolvedCwd ? [resolvedCwd] : ALLOWED_ROOTS;
+    const seenFiles = new Set<string>();
+    const mergedFiles: FileReferences[] = [];
+    let totalMatches = 0;
+
+    for (const root of roots) {
+      const result = universalFindReferences(symbol, root, {
+        fileExtensions,
+        excludePatterns,
+        contextLines,
+        language,
+      });
+      for (const f of result.files) {
+        if (!seenFiles.has(f.file)) {
+          seenFiles.add(f.file);
+          mergedFiles.push(f);
+        }
+      }
+      totalMatches += result.totalMatches;
+    }
 
     // Audit log
-    await writeAuditLog({ tool: "universal_find_references", symbol, cwd: resolvedCwd, totalMatches: result.totalMatches });
+    await writeAuditLog({ tool: "universal_find_references", symbol, cwd: resolvedCwd ?? "all_roots", totalMatches });
 
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      content: [{ type: "text" as const, text: JSON.stringify({ symbol, totalMatches, files: mergedFiles }, null, 2) }],
     };
   },
 );
@@ -783,14 +797,21 @@ server.tool(
   "Includes leading annotations (#[derive], @decorator, /// doc comments). " +
   "String/comment-aware bracket matching prevents false depth counts from braces inside strings or comments.",
   {
-    file: z.string().describe("Source file path (must resolve inside allowed root)"),
+    file: z.string().describe("Source file path (absolute or relative to cwd)"),
     symbol: z.string().describe("Symbol name to extract"),
     contextLines: z.number().optional().describe("Extra lines before/after the block (default: 0)"),
+    cwd: z.string().optional().describe("Working directory for resolving relative file paths (default: primary project root)"),
   },
-  async ({ file, symbol, contextLines }) => {
-    const result = extractCodeBlock(file, symbol, { contextLines });
+  async ({ file, symbol, contextLines, cwd }) => {
+    // Resolve relative file paths against cwd or primary root
+    let resolvedFile = file;
+    if (!path.isAbsolute(file)) {
+      const basePath = cwd ?? ALLOWED_ROOTS[0] ?? process.cwd();
+      resolvedFile = path.resolve(basePath, file);
+    }
+    const result = extractCodeBlock(resolvedFile, symbol, { contextLines });
 
-    await writeAuditLog({ tool: "extract_code_block", file, symbol });
+    await writeAuditLog({ tool: "extract_code_block", file: resolvedFile, symbol });
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
@@ -931,6 +952,155 @@ server.tool(
     await writeAuditLog({ tool: "list_feedback", filters, resultCount: entries.length });
     return {
       content: [{ type: "text" as const, text: JSON.stringify({ total: entries.length, entries }, null, 2) }],
+    };
+  },
+);
+
+// ── Tool: close_feedback ─────────────────────────────────
+
+server.tool(
+  "close_feedback",
+  "Close an existing feedback entry by ID — sets status to \"closed\" and optionally adds resolution text. " +
+  "Use this to mark feedback items as resolved after fixing them.",
+  {
+    id: z.string().describe("The feedback entry ID to close (from list_feedback output)"),
+    resolution: z.string().optional().describe("Resolution note explaining how the issue was addressed"),
+  },
+  async ({ id, resolution }) => {
+    const root = ALLOWED_ROOTS[0] ?? process.cwd();
+    const result = closeFeedback(root, id, resolution);
+    await writeAuditLog({ tool: "close_feedback", id, resolution: resolution ?? null });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+// ── Tool registry (for list_tools / help_tool) ──────────────
+
+// Registry helper: register a tool with simplified param definitions
+const _regParams = new Map<string, { description: string; params: Array<[string, string, boolean, string?]> }>();
+
+function _registerTool(name: string, desc: string, params: Array<[string, string, boolean, string?]>) {
+  const schema = z.object(Object.fromEntries(
+    params.map(([n, _t, req, d]) => [n, req ? z.any().describe(d ?? "") : z.any().optional().describe(d ?? "")]),
+  ));
+  registerToolInfo(name, desc, schema);
+}
+
+// Command tools
+_registerTool("run_safe_command", "Execute a shell command restricted to the active project root. Default tool — always use first.", [
+  ["command", "string", true, "Command to execute"],
+  ["cwd", "string", false, "Working directory"],
+  ["maxLines", "number", false, "Max output lines (default 200)"],
+  ["timeoutMs", "number", false, "Timeout in ms (default 60000)"],
+]);
+_registerTool("run_destructive_command", "Execute dangerous command after explicit user confirmation.", [
+  ["command", "string", true, "Command to execute"],
+  ["confirm", "boolean", true, "Acknowledge risk (required)"],
+  ["cwd", "string", false, "Working directory"],
+]);
+_registerTool("read_log_slice", "Read a portion of a saved log file.", [
+  ["logPath", "string", true, "Path to the log file"],
+  ["startLine", "number", false, "Starting line 0-based (default 0)"],
+  ["lineCount", "number", false, "Lines to read (default 100)"],
+]);
+_registerTool("run_command_grep", "Run command, return only lines matching a regex (Windows grep replacement).", [
+  ["command", "string", true, "Command to execute"],
+  ["pattern", "string", true, "Regex pattern to filter"],
+  ["cwd", "string", false, "Working directory"],
+]);
+_registerTool("list_allowed_roots", "List registered roots and friendly names usable as cwd.", []);
+_registerTool("resolve_cwd", "Verify a path against allowed roots. Returns exact cwd.", [
+  ["path", "string", true, "Path or friendly name to verify"],
+]);
+
+// Refactoring tools
+_registerTool("universal_find_references", "Find all occurrences of a symbol. Without cwd searches ALL allowed roots. Language-aware mode adds role annotations.", [
+  ["symbol", "string", true, "Symbol to search for"],
+  ["cwd", "string", false, "Workspace root (default: all roots)"],
+  ["language", "string", false, "rust|typescript|python|cpp for role detection"],
+]);
+_registerTool("extract_code_block", "Extract full text of a function/struct/class. Annotation-aware, string/comment-safe bracket matching.", [
+  ["file", "string", true, "Source file path (absolute or relative)"],
+  ["symbol", "string", true, "Symbol name to extract"],
+  ["contextLines", "number", false, "Extra lines (default 0)"],
+  ["cwd", "string", false, "Working dir for relative paths"],
+]);
+_registerTool("split_file_by_declarations", "Split large file into modules based on declarations. Generates index files. Use dryRun first.", [
+  ["file", "string", true, "Source file to split"],
+  ["grouping", "array", true, "Array of { module, symbols }"],
+  ["targetDir", "string", false, "Output directory"],
+  ["dryRun", "boolean", false, "Preview only (default true)"],
+]);
+_registerTool("batch_apply_edits", "Apply multiple file edits atomically with rollback. Validates first. Handles CRLF.", [
+  ["edits", "array", true, "Array of { file, search, replace }"],
+  ["dryRun", "boolean", false, "Preview only (default true)"],
+]);
+_registerTool("generate_module_skeleton", "Generate module file by extracting symbols from source. Declaration-only filtering.", [
+  ["modulePath", "string", true, "Target file path"],
+  ["symbols", "array", true, "Symbol names to extract"],
+  ["sourceFile", "string", true, "Source file"],
+  ["dryRun", "boolean", false, "Preview only (default true)"],
+]);
+_registerTool("verify_refactor_safety", "Semantic diff: function count, signatures, exports, imports, comment ratio.", [
+  ["before", "string", true, "Original code"],
+  ["after", "string", true, "New code"],
+]);
+
+// Feedback tools
+_registerTool("report_tool_feedback", "Report bugs/improvements/feature requests. Writes to .mcp/FEEDBACK.md. Idempotent.", [
+  ["type", "string", true, "bug|improvement|feature_request"],
+  ["tool", "string", true, "Tool name"],
+  ["title", "string", true, "Short summary"],
+  ["description", "string", true, "Detailed description"],
+]);
+_registerTool("list_feedback", "List feedback entries. Filter by type, tool, status.", [
+  ["type", "string", false, "bug|improvement|feature_request"],
+  ["tool", "string", false, "Tool name filter"],
+  ["status", "string", false, "open|closed"],
+]);
+_registerTool("close_feedback", "Close feedback entry by ID with resolution text.", [
+  ["id", "string", true, "Entry ID"],
+  ["resolution", "string", false, "Resolution note"],
+]);
+
+// ── Tool: list_tools ─────────────────────────────────────────
+
+server.tool(
+  "list_tools",
+  "List all available MCP tools with descriptions. Use this to discover available tools before starting a task.",
+  {
+    category: z.enum(["command", "refactoring", "feedback"]).optional().describe("Filter by category"),
+  },
+  async ({ category }) => {
+    const tools = listToolInfos(category);
+    await writeAuditLog({ tool: "list_tools", category: category ?? "all", resultCount: tools.length });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ total: tools.length, tools }, null, 2) }],
+    };
+  },
+);
+
+// ── Tool: help_tool ──────────────────────────────────────────
+
+server.tool(
+  "help_tool",
+  "Get detailed help for a specific MCP tool — parameters, types, defaults, description.",
+  {
+    tool: z.string().describe("Tool name to get help for"),
+  },
+  async ({ tool: toolName }) => {
+    const info = getToolInfo(toolName);
+    if (!info) {
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) }],
+        isError: true,
+      };
+    }
+    await writeAuditLog({ tool: "help_tool", helpFor: toolName });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(info, null, 2) }],
     };
   },
 );

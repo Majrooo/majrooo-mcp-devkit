@@ -20,7 +20,7 @@
   * `src/redirect.ts` — redirect-target reporting: reads back files written via `>` / `>>` / `2>` and shows their tail in the response.
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
-* **Testing:** Vitest — `npm test` (213 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Testing:** Vitest — `npm test` (237 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
   * `src/` — TypeScript sources (`index.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
@@ -42,6 +42,9 @@
 12. `verify_refactor_safety` — semantic diff between old and new code; catches accidental deletions (function count, signatures, exports, imports, comment ratio).
 13. `report_tool_feedback` — report bugs, improvements, or feature requests about any MCP tool (writes to `.mcp/FEEDBACK.md`, idempotent, project-protected).
 14. `list_feedback` — list feedback entries with optional filters (type, tool, status).
+15. `close_feedback` — close a feedback entry by ID, set status to "closed" with optional resolution text.
+16. `list_tools` — list all available MCP tools with descriptions, filterable by category (command/refactoring/feedback).
+17. `help_tool` — get detailed help for any tool: parameters, types, defaults, description.
 
 ## Configuration (environment)
 
@@ -66,7 +69,7 @@
 |---|---|
 | `npm install` | Install dependencies |
 | `npm run build` | Compile TypeScript (`tsc` → `build/`) |
-| `npm test` | Run Vitest unit tests (213 tests, `src/__tests__` only) |
+| `npm test` | Run Vitest unit tests (237 tests, `src/__tests__` only) |
 | `npm run test:watch` | Vitest watch mode (`src/__tests__`) |
 | `node build/index.js` | Run the MCP server (STDIO) |
 | `npm ls --depth=0` | List installed dependencies |

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { reportToolFeedback, readFeedbackEntries } from "../feedback.js";
+import { reportToolFeedback, readFeedbackEntries, closeFeedback } from "../feedback.js";
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "feedback-test-"));
@@ -136,5 +136,65 @@ describe("reportToolFeedback", () => {
     expect(content).toContain("**Reproduction:** step 1, step 2");
     expect(content).toContain("**Expected:** should work");
     expect(content).toContain("**Suggestion:** fix it");
+  });
+
+  it("closeFeedback sets status to closed", () => {
+    tmp = tmpDir();
+    const r1 = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "t", title: "Closeable bug", description: "fix me",
+    });
+    expect("error" in r1).toBe(false);
+    if ("error" in r1 || !r1.written) return;
+    const result = closeFeedback(tmp, r1.id);
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.updated).toBe(true);
+    const entries = readFeedbackEntries(tmp);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.status).toBe("closed");
+  });
+
+  it("closeFeedback adds resolution text", () => {
+    tmp = tmpDir();
+    const r1 = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "t", title: "Resolvable bug", description: "fix me",
+    });
+    if ("error" in r1 || !r1.written) return;
+    closeFeedback(tmp, r1.id, "Fixed by adding imports");
+    const entries = readFeedbackEntries(tmp);
+    expect(entries[0]!.resolution).toBe("Fixed by adding imports");
+  });
+
+  it("closeFeedback on non-existent ID → error", () => {
+    tmp = tmpDir();
+    const result = closeFeedback(tmp, "nonexistent-id");
+    expect("error" in result).toBe(true);
+    if ("error" in result) expect(result.error).toContain("not found");
+  });
+
+  it("closeFeedback on already closed → error", () => {
+    tmp = tmpDir();
+    const r1 = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "t", title: "Double close", description: "d",
+    });
+    if ("error" in r1 || !r1.written) return;
+    closeFeedback(tmp, r1.id);
+    const result = closeFeedback(tmp, r1.id);
+    expect("error" in result).toBe(true);
+    if ("error" in result) expect(result.error).toContain("already closed");
+  });
+
+  it("closeFeedback: open filter excludes closed entries", () => {
+    tmp = tmpDir();
+    const r1 = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "t", title: "Open one", description: "d",
+    });
+    reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "t", title: "Still open", description: "d",
+    });
+    if ("error" in r1 || !r1.written) return;
+    closeFeedback(tmp, r1.id);
+    expect(readFeedbackEntries(tmp, { status: "open" })).toHaveLength(1);
+    expect(readFeedbackEntries(tmp, { status: "closed" })).toHaveLength(1);
   });
 });

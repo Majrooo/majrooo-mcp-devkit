@@ -102,4 +102,44 @@ describe("batchApplyEdits", () => {
     if ("error" in result) return;
     expect(result.preview[0]!.description).toBe("Greet change");
   });
+
+  it("multiple edits to same file accumulate correctly", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "multi.txt", "aaa bbb ccc");
+    const result = batchApplyEdits([
+      { file: f, search: "aaa", replace: "AAA" },
+      { file: f, search: "bbb", replace: "BBB" },
+      { file: f, search: "ccc", replace: "CCC" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(fs.readFileSync(f, "utf-8")).toBe("AAA BBB CCC");
+  });
+
+  it("CRLF line endings are handled correctly", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "crlf.txt", "line1\r\nline2\r\nline3");
+    const result = batchApplyEdits([
+      { file: f, search: "line2", replace: "LINE2" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(f, "utf-8");
+    expect(content).toContain("LINE2");
+    expect(content).toContain("\r\n"); // preserve CRLF
+    expect(content).not.toContain("line2");
+  });
+
+  it("CRLF: multi-line search string matches", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "crlf2.txt", "aaa\r\nbbb\r\nccc");
+    const result = batchApplyEdits([
+      { file: f, search: "aaa\nbbb", replace: "AAA\nBBB" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(f, "utf-8");
+    expect(content).toContain("AAA");
+    expect(content).toContain("BBB");
+  });
 });

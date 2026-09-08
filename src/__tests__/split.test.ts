@@ -151,4 +151,162 @@ describe("splitFileByDeclarations", () => {
     const result = splitFileByDeclarations("/fake/file.xyz", [{ module: "a.xyz", symbols: ["x"] }]);
     expect("error" in result).toBe(true);
   });
+
+  it("imports are included in split output", () => {
+    tmp = tmpDir();
+    const src = path.join(FIXTURES, "test.rs");
+    const result = splitFileByDeclarations(src, [
+      { module: "config.rs", symbols: ["AiConfig"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(path.join(tmp, "config.rs"), "utf-8");
+    expect(content).toContain("use std::collections::HashMap;");
+    expect(content).toContain("use crate::ai::AiConfig;");
+  });
+
+  it("impl blocks are included for extracted types", () => {
+    tmp = tmpDir();
+    const src = path.join(FIXTURES, "test.rs");
+    const result = splitFileByDeclarations(src, [
+      { module: "config.rs", symbols: ["AiConfig"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(path.join(tmp, "config.rs"), "utf-8");
+    expect(content).toContain("impl AiConfig {");
+    expect(content).toContain("pub fn new(model_name: &str) -> Self");
+  });
+
+  it("impl blocks NOT included for types without impl", () => {
+    tmp = tmpDir();
+    const src = path.join(FIXTURES, "test.rs");
+    const result = splitFileByDeclarations(src, [
+      { module: "game.rs", symbols: ["GameState"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(path.join(tmp, "game.rs"), "utf-8");
+    expect(content).toContain("pub struct GameState");
+    // GameState has no impl block in the fixture
+    expect(content).not.toContain("impl GameState");
+  });
+
+  it("private declarations are findable and extractable", () => {
+    tmp = tmpDir();
+    const src = path.join(FIXTURES, "test.rs");
+    const result = splitFileByDeclarations(src, [
+      { module: "priv.rs", symbols: ["MAX_RETRIES", "private_helper"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(path.join(tmp, "priv.rs"), "utf-8");
+    expect(content).toContain("MAX_RETRIES");
+    expect(content).toContain("fn private_helper");
+  });
+
+  it("dry-run reports imports and impl block counts", () => {
+    const src = path.join(FIXTURES, "test.rs");
+    const result = splitFileByDeclarations(src, [
+      { module: "config.rs", symbols: ["AiConfig"] },
+    ], { dryRun: true });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.imports).toBeDefined();
+    expect(result.imports!.length).toBeGreaterThan(0);
+    expect(result.imports!).toContain("use std::collections::HashMap;");
+    expect(result.preview[0]!.implBlocks).toBe(1);
+  });
+
+  it("pub(crate) declarations are findable", () => {
+    // Create a temporary file with pub(crate) syntax
+    tmp = tmpDir();
+    const src = path.join(tmp, "pubcrate.rs");
+    fs.writeFileSync(src, [
+      "pub(crate) fn internal_fn() -> i32 { 42 }",
+      "pub(super) struct InternalStruct { pub x: i32 }",
+    ].join("\n"), "utf-8");
+    const result = splitFileByDeclarations(src, [
+      { module: "out.rs", symbols: ["internal_fn", "InternalStruct"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(path.join(tmp, "out.rs"), "utf-8");
+    expect(content).toContain("internal_fn");
+    expect(content).toContain("InternalStruct");
+  });
+
+  it("cross-module references add use super:: imports", () => {
+    tmp = tmpDir();
+    const src = path.join(FIXTURES, "test.rs");
+    const result = splitFileByDeclarations(src, [
+      { module: "config.rs", symbols: ["AiConfig"] },
+      { module: "game.rs", symbols: ["GameState", "ai_turn_system"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    // game.rs references AiConfig from config.rs — should have use super::AiConfig;
+    const gameContent = fs.readFileSync(path.join(tmp, "game.rs"), "utf-8");
+    expect(gameContent).toContain("use super::AiConfig;");
+    // config.rs does NOT reference GameState — no cross-module import
+    const configContent = fs.readFileSync(path.join(tmp, "config.rs"), "utf-8");
+    expect(configContent).not.toContain("use super::");
+  });
+
+  it("mod blocks are extractable (e.g. #[cfg(test)] mod tests)", () => {
+    tmp = tmpDir();
+    const src = path.join(tmp, "with_tests.rs");
+    fs.writeFileSync(src, [
+      "pub struct Foo { pub x: i32 }",
+      "",
+      "#[cfg(test)]",
+      "mod tests {",
+      "    use super::*;",
+      "",
+      "    #[test]",
+      "    fn it_works() {",
+      "        assert_eq!(1 + 1, 2);",
+      "    }",
+      "}",
+    ].join("\n"), "utf-8");
+    const result = splitFileByDeclarations(src, [
+      { module: "foo.rs", symbols: ["Foo"] },
+      { module: "tests.rs", symbols: ["tests"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const testsContent = fs.readFileSync(path.join(tmp, "tests.rs"), "utf-8");
+    expect(testsContent).toContain("#[cfg(test)]");
+    expect(testsContent).toContain("mod tests");
+    expect(testsContent).toContain("fn it_works");
+  });
+
+  it("cfg-aware: symbol used only in cfg block gets cfg on import", () => {
+    tmp = tmpDir();
+    const src = path.join(tmp, "cfg_test.rs");
+    fs.writeFileSync(src, [
+      "pub struct Config { pub debug: bool }",
+      "",
+      "pub struct StartMode { pub x: i32 }",
+      "",
+      "pub fn init(cfg: &Config) {",
+      "    #[cfg(not(debug_assertions))]",
+      "    {",
+      "        let _mode = StartMode { x: 1 };",
+      "    }",
+      "}",
+    ].join("\n"), "utf-8");
+    const result = splitFileByDeclarations(src, [
+      { module: "types.rs", symbols: ["Config", "StartMode"] },
+      { module: "init.rs", symbols: ["init"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const initContent = fs.readFileSync(path.join(tmp, "init.rs"), "utf-8");
+    // StartMode is used only in #[cfg(not(debug_assertions))] → import should have same cfg
+    expect(initContent).toContain("#[cfg(not(debug_assertions))]");
+    expect(initContent).toContain("use super::StartMode;");
+    // Config is used in non-cfg code → plain import (no cfg needed)
+    expect(initContent).toContain("use super::Config;");
+  });
 });

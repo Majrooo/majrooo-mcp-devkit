@@ -1,4 +1,7 @@
-// Rust fixture for symbol tests
+// Rust fixture for split tests — private items + impl blocks + imports
+
+use std::collections::HashMap;
+use crate::ai::AiConfig;
 
 /// Configuration for the AI system.
 /// This struct holds all runtime parameters.
@@ -8,6 +11,8 @@ pub struct AiConfig {
     pub model_name: String,
     pub max_tokens: u32,
 }
+
+const MAX_RETRIES: u32 = 3;
 
 impl AiConfig {
     /// Create a new AiConfig with default values.
@@ -42,11 +47,6 @@ pub fn ai_turn_system(
     }
 }
 
-use std::collections::HashMap;
-use crate::ai::AiConfig;
-
-mod utils {
-    pub fn helper() -> String {
-        "done".to_string()
-    }
+fn private_helper() -> bool {
+    true
 }

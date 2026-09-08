@@ -50,6 +50,19 @@ export interface BatchError {
 }
 
 /**
+ * Normalize line endings to LF for comparison, preserving original style for write-back.
+ */
+function normalizeLineEndings(text: string): { normalized: string; eol: string } {
+  if (text.includes("\r\n")) return { normalized: text.replace(/\r\n/g, "\n"), eol: "\r\n" };
+  return { normalized: text, eol: "\n" };
+}
+
+function restoreLineEndings(text: string, eol: string): string {
+  if (eol === "\r\n") return text.replace(/\n/g, "\r\n");
+  return text;
+}
+
+/**
  * Validate all edits first. If any fail, return error — NO files modified.
  * On success in non-dryRun mode, apply with rollback on failure.
  */
@@ -65,7 +78,8 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
       preview.push({ file: edit.file, action: "error", matchCount: 0, error: `Cannot read file: ${edit.file}`, description: edit.description });
       return { error: `Cannot read file: ${edit.file}`, failedAt: i, preview };
     }
-    const count = countOccurrences(content, edit.search);
+    const { normalized } = normalizeLineEndings(content);
+    const count = countOccurrences(normalized, edit.search);
     if (count === 0) {
       preview.push({ file: edit.file, action: "error", matchCount: 0, error: `search string not found in ${edit.file}`, description: edit.description });
       return { error: `search string not found in ${edit.file}`, failedAt: i, preview };
@@ -79,24 +93,27 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
 
   if (dryRun) return { dryRun: true, totalEdits: edits.length, validated: edits.length, preview };
 
-  // Phase 2: Apply with rollback
-  const originals = new Map<string, string>();
+  // Phase 2: Apply with rollback — accumulate changes per file
+  const fileStates = new Map<string, { original: string; current: string; eol: string }>();
   try {
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i]!;
-      if (!originals.has(edit.file)) {
-        originals.set(edit.file, fs.readFileSync(edit.file, "utf-8"));
+      if (!fileStates.has(edit.file)) {
+        const raw = fs.readFileSync(edit.file, "utf-8");
+        const { normalized, eol } = normalizeLineEndings(raw);
+        fileStates.set(edit.file, { original: raw, current: normalized, eol });
       }
-      const content = originals.get(edit.file)!;
+      const state = fileStates.get(edit.file)!;
       const newContent = edit.replaceAll
-        ? content.split(edit.search).join(edit.replace)
-        : content.replace(edit.search, edit.replace);
-      fs.writeFileSync(edit.file, newContent, "utf-8");
+        ? state.current.split(edit.search).join(edit.replace)
+        : state.current.replace(edit.search, edit.replace);
+      state.current = newContent; // accumulate for next edit on same file
+      fs.writeFileSync(edit.file, restoreLineEndings(newContent, state.eol), "utf-8");
     }
   } catch (err) {
     // Rollback
-    for (const [file, original] of originals) {
-      try { fs.writeFileSync(file, original, "utf-8"); } catch { /* best effort */ }
+    for (const [file, state] of fileStates) {
+      try { fs.writeFileSync(file, state.original, "utf-8"); } catch { /* best effort */ }
     }
     return { error: `Write failed: ${err}`, failedAt: -1, preview };
   }

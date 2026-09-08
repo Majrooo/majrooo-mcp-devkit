@@ -89,4 +89,38 @@ describe("generateModuleSkeleton", () => {
     const content = fs.readFileSync(target, "utf-8");
     expect(content).toContain("class GameEngine");
   });
+
+  it("only includes declaration blocks, not usage sites", () => {
+    const src = path.join(FIXTURES, "test.rs");
+    const result = generateModuleSkeleton("/tmp/out.rs", ["AiConfig"], src, { dryRun: true });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    // Should contain the struct definition
+    expect(result.content).toContain("pub struct AiConfig");
+    // Should contain the impl block
+    expect(result.content).toContain("impl AiConfig {");
+    // Should NOT contain unrelated functions that just USE AiConfig
+    expect(result.content).not.toContain("fn setup_ai");
+    expect(result.content).not.toContain("fn ai_turn_system");
+  });
+
+  it("includes top-level imports only, not indented use statements", () => {
+    const src = path.join(FIXTURES, "test.rs");
+    const result = generateModuleSkeleton("/tmp/out.rs", ["AiConfig"], src, { dryRun: true });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.content).toContain("use std::collections::HashMap;");
+    expect(result.content).toContain("use crate::ai::AiConfig;");
+  });
+
+  it("TypeScript: only class definition, not usage sites", () => {
+    const src = path.join(FIXTURES, "test.ts");
+    const result = generateModuleSkeleton("/tmp/out.ts", ["AiConfig"], src, { dryRun: true });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    // Should contain the class definition
+    expect(result.content).toContain("export class AiConfig");
+    // Should NOT contain unrelated functions that just USE AiConfig
+    expect(result.content).not.toContain("aiTurnSystem");
+  });
 });
