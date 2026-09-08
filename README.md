@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-168%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 168 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 192 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution tools for Cline/Claude Desktop.
 
@@ -94,6 +94,42 @@ Read the full text of a function, struct, class, or method from a file. Returns 
 | `file` | string | — | Source file path (must resolve inside allowed root) |
 | `symbol` | string | — | Symbol name to extract |
 | `contextLines` | number | 0 | Extra lines before/after the block |
+
+### `split_file_by_declarations`
+
+Split a large file into multiple smaller files based on top-level declarations. Optionally generates a combining file (`mod.rs` / `index.ts` / `__init__.py`). Use `dryRun: true` (default) to preview the layout before writing.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `file` | string | — | Source file to split |
+| `grouping` | object[] | — | `[{ module, symbols }]` — module groupings |
+| `targetDir` | string | dirname(file) | Where new files are written |
+| `language` | string | auto-detect | `"rust"`, `"typescript"`, `"python"`, `"cpp"` |
+| `generateIndex` | boolean | true | Create combining file |
+| `dryRun` | boolean | true | Preview only — write nothing |
+| `overwrite` | boolean | false | Allow overwriting existing targets |
+
+### `batch_apply_edits`
+
+Apply multiple file edits atomically with rollback on failure. Validates all edits first — if any `search` string is not found or matches multiple times (without `replaceAll`), NO files are modified.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `edits` | object[] | — | `[{ file, search, replace, description?, replaceAll? }]` |
+| `dryRun` | boolean | true | Preview all changes without writing |
+
+### `generate_module_skeleton`
+
+Generate a new module file with extracted symbols from a source file. Returns error with `unknownSymbols` list if any symbols are not found.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `modulePath` | string | — | Target file path |
+| `symbols` | string[] | — | Symbol names to include |
+| `sourceFile` | string | — | Original file to extract from |
+| `language` | string | auto-detect | `"rust"`, `"typescript"`, `"python"` |
+| `dryRun` | boolean | true | Preview only |
+| `overwrite` | boolean | false | Allow overwriting existing file |
 
 ## Configuration
 

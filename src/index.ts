@@ -44,6 +44,9 @@ import { stripAnsi, withUtf8Encoding } from "./output.js";
 import { buildRedirectNote } from "./redirect.js";
 import { composeFailureMessage, extractExecFailure, formatCommandError } from "./format.js";
 import { universalFindReferences, extractCodeBlock } from "./symbols.js";
+import { splitFileByDeclarations } from "./split.js";
+import { batchApplyEdits } from "./batch.js";
+import { generateModuleSkeleton } from "./skeleton.js";
 
 const execAsync = promisify(exec);
 
@@ -790,6 +793,78 @@ server.tool(
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
+  },
+);
+
+// ── Tool: split_file_by_declarations ───────────────────────
+
+server.tool(
+  "split_file_by_declarations",
+  "Split a large file into multiple smaller files based on top-level declarations. " +
+  "Optionally generates a combining file (mod.rs / index.ts / __init__.py). " +
+  "Use dryRun: true (default) to preview the layout before writing.",
+  {
+    file: z.string().describe("Source file to split"),
+    grouping: z.array(z.object({
+      module: z.string().describe("Target filename (e.g. data.rs)"),
+      symbols: z.array(z.string()).describe("Symbol names to include in this module"),
+    })).describe("Module groupings"),
+    targetDir: z.string().optional().describe("Where new files are written (default: dirname of file)"),
+    language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Language (auto-detected from extension)"),
+    generateIndex: z.boolean().optional().describe("Create combining file (default: true)"),
+    dryRun: z.boolean().optional().describe("Preview only — write nothing (default: true)"),
+    overwrite: z.boolean().optional().describe("Allow overwriting existing target files (default: false)"),
+  },
+  async ({ file, grouping, targetDir, language, generateIndex, dryRun, overwrite }) => {
+    const result = splitFileByDeclarations(file, grouping, { targetDir, language, generateIndex, dryRun, overwrite });
+    await writeAuditLog({ tool: "split_file_by_declarations", file, dryRun: dryRun ?? true, modules: grouping.length });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+  },
+);
+
+// ── Tool: batch_apply_edits ────────────────────────────────
+
+server.tool(
+  "batch_apply_edits",
+  "Apply multiple file edits atomically with rollback on failure. " +
+  "Validates all edits first — if any search string is not found, NO files are modified. " +
+  "Use dryRun: true (default) to preview changes.",
+  {
+    edits: z.array(z.object({
+      file: z.string().describe("File path inside allowed root"),
+      search: z.string().describe("Exact text to find (must match once unless replaceAll: true)"),
+      replace: z.string().describe("Replacement text"),
+      description: z.string().optional().describe("Human-readable description for audit log"),
+      replaceAll: z.boolean().optional().describe("Allow multiple matches (default: false)"),
+    })).describe("List of edits to apply"),
+    dryRun: z.boolean().optional().describe("Preview all changes without writing (default: true)"),
+  },
+  async ({ edits, dryRun }) => {
+    const result = batchApplyEdits(edits, { dryRun });
+    await writeAuditLog({ tool: "batch_apply_edits", totalEdits: edits.length, dryRun: dryRun ?? true });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+  },
+);
+
+// ── Tool: generate_module_skeleton ─────────────────────────
+
+server.tool(
+  "generate_module_skeleton",
+  "Generate a new module file with correct imports, declarations and visibility. " +
+  "Reads the source file, extracts the specified symbols, and writes them to the target module path. " +
+  "Returns error with unknownSymbols list if any symbols are not found.",
+  {
+    modulePath: z.string().describe("Target file path (e.g. src/ai/data.rs)"),
+    symbols: z.array(z.string()).describe("Symbol names to include"),
+    sourceFile: z.string().describe("Original file to extract symbols from"),
+    language: z.enum(["rust", "typescript", "python"]).optional().describe("Language (auto-detected)"),
+    dryRun: z.boolean().optional().describe("Preview only (default: true)"),
+    overwrite: z.boolean().optional().describe("Allow overwriting existing file (default: false)"),
+  },
+  async ({ modulePath, symbols, sourceFile, language, dryRun, overwrite }) => {
+    const result = generateModuleSkeleton(modulePath, symbols, sourceFile, { language, dryRun, overwrite });
+    await writeAuditLog({ tool: "generate_module_skeleton", modulePath, symbols, dryRun: dryRun ?? true });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
   },
 );
 

@@ -60,12 +60,12 @@ export interface FindReferencesOptions {
 
 // ── Language-aware secondary patterns (role detection) ──────
 
-interface LanguagePatterns {
+export interface LanguagePatterns {
   declaration: RegExp;
   import: RegExp;
 }
 
-const LANGUAGE_PATTERNS: Record<string, LanguagePatterns> = {
+export const LANGUAGE_PATTERNS: Record<string, LanguagePatterns> = {
   rust: {
     declaration: /^pub\s+(fn|struct|enum|trait|type|const|static)\s+/,
     import: /^\s*use\s+/,
@@ -84,7 +84,7 @@ const LANGUAGE_PATTERNS: Record<string, LanguagePatterns> = {
   },
 };
 
-function escapeRegex(s: string): string {
+export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -208,19 +208,21 @@ export interface ExtractBlockOptions {
 
 // ── String/comment skip state machine ───────────────────────
 
-interface TokenizerState {
+export interface TokenizerState {
   inString: false | "'" | '"' | "`";
   inLineComment: boolean;
   inBlockComment: boolean;
   escapeNext: boolean;
 }
 
-function createInitialState(): TokenizerState {
+// ── Shared helpers (exported for split.ts, skeleton.ts) ─────
+
+export function createInitialState(): TokenizerState {
   return { inString: false, inLineComment: false, inBlockComment: false, escapeNext: false };
 }
 
 /** Advance the tokenizer state by one char. Returns true if consumed (inside string/comment). */
-function advanceTokenizer(state: TokenizerState, ch: string, nextCh: string | undefined): boolean {
+export function advanceTokenizer(state: TokenizerState, ch: string, nextCh: string | undefined): boolean {
   if (state.inLineComment) {
     if (ch === "\n") state.inLineComment = false;
     return true;
@@ -244,7 +246,7 @@ function advanceTokenizer(state: TokenizerState, ch: string, nextCh: string | un
 
 // ── Annotation / block boundary helpers ─────────────────────
 
-function isAnnotationLine(line: string): boolean {
+export function isAnnotationLine(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return false;
   if (/^#\[/.test(trimmed)) return true;  // Rust #[...]
@@ -256,7 +258,7 @@ function isAnnotationLine(line: string): boolean {
   return false;
 }
 
-function scanUpwardForAnnotations(lines: string[], fromLine: number): number {
+export function scanUpwardForAnnotations(lines: string[], fromLine: number): number {
   let start = fromLine;
   let i = fromLine - 1;
   while (i >= 0) {
@@ -272,7 +274,7 @@ function scanUpwardForAnnotations(lines: string[], fromLine: number): number {
   return start;
 }
 
-function isIndentLanguage(lines: string[], declLine: number): boolean {
+export function isIndentLanguage(lines: string[], declLine: number): boolean {
   const decl = lines[declLine]!.trim();
   if (/^(class|def|async\s+def)\s+/.test(decl)) {
     if (decl.endsWith(":")) return true;
@@ -288,7 +290,7 @@ function isIndentLanguage(lines: string[], declLine: number): boolean {
   return false;
 }
 
-function findBraceBlockEnd(lines: string[], openLine: number): number {
+export function findBraceBlockEnd(lines: string[], openLine: number): number {
   const state = createInitialState();
   let depth = 0;
   let foundOpen = false;
@@ -309,7 +311,7 @@ function findBraceBlockEnd(lines: string[], openLine: number): number {
   return lines.length - 1;
 }
 
-function findIndentBlockEnd(lines: string[], declLine: number): number {
+export function findIndentBlockEnd(lines: string[], declLine: number): number {
   const declIndent = lines[declLine]!.search(/\S/);
   for (let i = declLine + 1; i < lines.length; i++) {
     const line = lines[i]!;
@@ -320,7 +322,7 @@ function findIndentBlockEnd(lines: string[], declLine: number): number {
   return lines.length - 1;
 }
 
-function findBraceStart(lines: string[], declLine: number): number {
+export function findBraceStart(lines: string[], declLine: number): number {
   if (lines[declLine]!.includes("{")) return declLine;
   for (let j = declLine + 1; j < Math.min(lines.length, declLine + 5); j++) {
     if (lines[j]!.includes("{")) return j;
