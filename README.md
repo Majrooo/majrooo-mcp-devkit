@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-203%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 203 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 211 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -140,6 +140,20 @@ Semantic diff between old and new code. Catches accidental deletions before comp
 | `before` | string | — | Original code text |
 | `after` | string | — | New code text |
 | `language` | string | auto-detect | `"rust"`, `"typescript"`, `"python"`, `"cpp"` |
+
+### `report_tool_feedback`
+
+Report a bug, improvement, or feature request about any MCP tool. Writes structured feedback to `.mcp/FEEDBACK.md` (project-specific, gitignored). Entries are idempotent — duplicate reports are skipped.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `type` | string | — | `"bug"`, `"improvement"`, or `"feature_request"` |
+| `tool` | string | — | Name of the MCP tool this feedback is about |
+| `title` | string | — | Short summary (1 line) |
+| `description` | string | — | Detailed description |
+| `reproduction` | string | — | Steps to reproduce (optional) |
+| `expected` | string | — | What you expected (optional) |
+| `suggestion` | string | — | Suggested fix or improvement (optional) |
 
 ## Configuration
 

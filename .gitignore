@@ -2,6 +2,7 @@ node_modules/
 build/
 memory-bank/
 docs-private/
+.mcp/
 .clinerules
 .env
 *.log

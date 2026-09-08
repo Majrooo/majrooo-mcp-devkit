@@ -48,6 +48,7 @@ import { splitFileByDeclarations } from "./split.js";
 import { batchApplyEdits } from "./batch.js";
 import { generateModuleSkeleton } from "./skeleton.js";
 import { verifyRefactorSafety } from "./verify.js";
+import { reportToolFeedback, readFeedbackEntries } from "./feedback.js";
 
 const execAsync = promisify(exec);
 
@@ -884,6 +885,31 @@ server.tool(
   async ({ before, after, language }) => {
     const result = verifyRefactorSafety(before, after, { language });
     await writeAuditLog({ tool: "verify_refactor_safety", safe: result.safe, checksCount: result.checks.length });
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+  },
+);
+
+// ── Tool: report_tool_feedback ─────────────────────────────
+
+server.tool(
+  "report_tool_feedback",
+  "Report a bug, improvement, or feature request about any MCP tool in this server. " +
+  "Writes structured feedback to .mcp/FEEDBACK.md (project-specific, gitignored). " +
+  "Use this when a tool produces unexpected results, crashes, or when you need a new capability. " +
+  "Entries are idempotent — duplicate reports are skipped.",
+  {
+    type: z.enum(["bug", "improvement", "feature_request"]).describe("Type of feedback"),
+    tool: z.string().describe("Name of the MCP tool this feedback is about"),
+    title: z.string().describe("Short summary (1 line)"),
+    description: z.string().describe("Detailed description of the issue or request"),
+    reproduction: z.string().optional().describe("Steps to reproduce the issue"),
+    expected: z.string().optional().describe("What you expected to happen"),
+    suggestion: z.string().optional().describe("Your suggestion for a fix or improvement"),
+  },
+  async (input) => {
+    const root = ALLOWED_ROOTS[0] ?? process.cwd();
+    const result = reportToolFeedback(root, "majrooo-mcp-devkit", "majrooo-mcp-devkit", "0.1.0", input);
+    await writeAuditLog({ tool: "report_tool_feedback", type: input.type, reportedTool: input.tool, result: "error" in result ? "error" : result.written ? "written" : "duplicate" });
     return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
   },
 );
