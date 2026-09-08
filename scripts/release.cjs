@@ -99,66 +99,30 @@ try {
   console.log('ℹ️  No previous tag found — will include all commits');
 }
 
-// 7. Generate release notes from commits
-console.log('\n📋 Generating release notes...');
-const logRange = previousTag ? `${previousTag}..HEAD` : 'HEAD';
-const commits = run(`git log ${logRange} --pretty=format:"- %s" --no-merges`);
+// 7. Read release notes from CHANGELOG.md
+console.log('\n' + String.fromCodePoint(0x1F4CB) + ' Reading CHANGELOG.md...');
+const { readFileSync } = require('fs');
+let changelogContent;
+try {
+  changelogContent = readFileSync('CHANGELOG.md', 'utf8');
+} catch (_e) {
+  console.error('\u274C CHANGELOG.md not found');
+  process.exit(1);
+}
 
-const isFirstRelease = !previousTag;
-const releaseNotes = isFirstRelease
-  ? [
-      '# ' + tag + ' — Initial Release',
-      '',
-      'MCP server that provides safe command execution, code analysis and',
-      'refactoring tools for AI assistants (Cline, Claude Desktop).',
-      '',
-      "## What's Included",
-      '',
-      '### 6 Tools',
-      '- `run_safe_command` — default command executor with safety checks',
-      '- `run_destructive_command` — dangerous commands with explicit confirmation',
-      '- `read_log_slice` — read truncated log files',
-      '- `run_command_grep` — Windows-friendly grep replacement',
-      '- `list_allowed_roots` — discover registered project roots',
-      '- `resolve_cwd` — verify paths against allowed roots',
-      '',
-      '### Safety Features',
-      '- Dangerous-pattern blacklist (destructive git, rm -rf, curl|bash...)',
-      '- Directory-escape detection',
-      '- Write-target checks for redirects',
-      '- Missing destructive target guard',
-      '- Pre-commit & pre-push hooks',
-      '',
-      '### License',
-      'GPL-3.0-or-later — see [LICENSE](LICENSE) for details.',
-      '',
-      '## Quick Start',
-      '',
-      '```bash',
-      'git clone https://github.com/Majrooo/majrooo-mcp-devkit.git',
-      'cd majrooo-mcp-devkit',
-      'npm install',
-      'npm run build',
-      'node build/index.js',
-      '```',
-      '',
-      'See [README.md](https://github.com/Majrooo/majrooo-mcp-devkit#readme) for full documentation.',
-      '',
-      '---',
-      '',
-      "## What's Changed",
-      '',
-      commits || '- Initial release',
-    ].join('\n')
-  : [
-      '# ' + tag,
-      '',
-      "## What's Changed",
-      '',
-      commits || '- No changes listed',
-      '',
-      'See [README.md](https://github.com/Majrooo/majrooo-mcp-devkit#readme) for documentation.',
-    ].join('\n');
+// Find the section for this version: ## [X.Y.Z] - DATE
+const versionPattern = new RegExp(
+  '## \\[' + version.replace(/\./g, '\\.') + '\\].*?\\n([\\s\\S]*?)(?=\\n## \\[|$)'
+);
+const match = changelogContent.match(versionPattern);
+
+if (!match) {
+  console.error('\u274C Version ' + version + ' not found in CHANGELOG.md');
+  process.exit(1);
+}
+
+const changelogBody = match[1].trim();
+const releaseNotes = '# ' + tag + '\n\n' + changelogBody + '\n';
 
 console.log(releaseNotes);
 
