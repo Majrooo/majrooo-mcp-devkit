@@ -22,6 +22,7 @@ import { z } from "zod";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { appendFile, writeFile, readFile, stat, rename } from "fs/promises";
+import { readFileSync } from "fs";
 import path from "path";
 import os from "os";
 import {
@@ -54,6 +55,15 @@ import { registerToolInfo, listToolInfos, getToolInfo } from "./tool-registry.js
 
 const execAsync = promisify(exec);
 
+function getPackageVersion(): string {
+  try {
+    const raw = readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf-8");
+    return JSON.parse(raw).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 function getExecOptions(cwd: string, timeoutMs: number) {
   return {
     maxBuffer: 1024 * 1024 * 50, // 50 MB
@@ -68,7 +78,7 @@ function getExecOptions(cwd: string, timeoutMs: number) {
 
 const server = new McpServer({
   name: "majrooo-mcp-devkit",
-  version: "0.1.0",
+  version: getPackageVersion(),
 });
 
 // ── Helpers ────────────────────────────────────────────────
@@ -104,8 +114,8 @@ async function writeAuditLog(entry: Record<string, unknown>): Promise<void> {
     }
     const line = JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + "\n";
     await appendFile(auditPath, line, "utf-8");
-  } catch {
-    // Audit log failure should not crash the command
+  } catch (err) {
+    console.error("[audit-log] Failed to write audit entry:", err);
   }
 }
 
@@ -1007,7 +1017,7 @@ server.tool(
   },
   async (input) => {
     const root = ALLOWED_ROOTS[0] ?? process.cwd();
-    const result = reportToolFeedback(root, "majrooo-mcp-devkit", "majrooo-mcp-devkit", "0.1.0", input);
+    const result = reportToolFeedback(root, "majrooo-mcp-devkit", "majrooo-mcp-devkit", getPackageVersion(), input);
     await writeAuditLog({ tool: "report_tool_feedback", type: input.type, reportedTool: input.tool, result: "error" in result ? "error" : result.written ? "written" : "duplicate" });
     return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
   },
@@ -1056,94 +1066,141 @@ server.tool(
 
 // ── Tool registry (for list_tools / help_tool) ──────────────
 
-// Registry helper: register a tool with simplified param definitions
-const _regParams = new Map<string, { description: string; params: Array<[string, string, boolean, string?]> }>();
-
-function _registerTool(name: string, desc: string, params: Array<[string, string, boolean, string?]>) {
-  const schema = z.object(Object.fromEntries(
-    params.map(([n, _t, req, d]) => [n, req ? z.any().describe(d ?? "") : z.any().optional().describe(d ?? "")]),
-  ));
-  registerToolInfo(name, desc, schema);
-}
+// Register tools with their actual Zod schemas for accurate introspection.
+// Descriptions are passed explicitly for params that use z.any() or enums
+// where Zod v4 introspection may not surface .describe() correctly.
 
 // Command tools
-_registerTool("run_safe_command", "Execute a shell command restricted to the active project root. Default tool — always use first.", [
-  ["command", "string", true, "Command to execute"],
-  ["cwd", "string", false, "Working directory"],
-  ["maxLines", "number", false, "Max output lines (default 200)"],
-  ["timeoutMs", "number", false, "Timeout in ms (default 60000)"],
-]);
-_registerTool("run_destructive_command", "Execute dangerous command after explicit user confirmation.", [
-  ["command", "string", true, "Command to execute"],
-  ["confirm", "boolean", true, "Acknowledge risk (required)"],
-  ["cwd", "string", false, "Working directory"],
-]);
-_registerTool("read_log_slice", "Read a portion of a saved log file.", [
-  ["logPath", "string", true, "Path to the log file"],
-  ["startLine", "number", false, "Starting line 0-based (default 0)"],
-  ["lineCount", "number", false, "Lines to read (default 100)"],
-]);
-_registerTool("run_command_grep", "Run command, return only lines matching a regex (Windows grep replacement).", [
-  ["command", "string", true, "Command to execute"],
-  ["pattern", "string", true, "Regex pattern to filter"],
-  ["cwd", "string", false, "Working directory"],
-]);
-_registerTool("list_allowed_roots", "List registered roots and friendly names usable as cwd.", []);
-_registerTool("resolve_cwd", "Verify a path against allowed roots. Returns exact cwd.", [
-  ["path", "string", true, "Path or friendly name to verify"],
-]);
+registerToolInfo("run_safe_command", "Execute a shell command restricted to the active project root. Default tool — always use first.",
+  z.object({
+    command: z.string().describe("The command to execute (runs in the directory given by the cwd parameter)"),
+    cwd: z.string().optional().describe("The directory in which the command will be run (must be inside MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS). Default: the primary project (MCP_PROJECT_ROOT)."),
+    maxLines: z.number().optional().describe("Maximum number of output lines (default: 200)"),
+    timeoutMs: z.number().optional().describe("Timeout in milliseconds (1,000 – 600,000, default 60,000)."),
+  }),
+);
+registerToolInfo("run_destructive_command", "Use ONLY when run_safe_command rejected the command AND the user explicitly confirmed. Never set confirm:true automatically. First restate the risk to the user.",
+  z.object({
+    command: z.string().describe("The command to execute (runs in the directory given by the cwd parameter)"),
+    confirm: z.boolean().describe("Confirmation that you are aware of the risk (required for dangerous commands)"),
+    cwd: z.string().optional().describe("The directory in which the command will be run (must be inside MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS). Default: the primary project (MCP_PROJECT_ROOT)."),
+    maxLines: z.number().optional().describe("Maximum number of output lines (default: 200)"),
+    timeoutMs: z.number().optional().describe("Timeout in milliseconds (1,000 – 600,000, default 60,000)."),
+  }),
+);
+registerToolInfo("read_log_slice", "Reads a slice of a log file by the given line range. Use instead of re-running the same command with a higher maxLines.",
+  z.object({
+    logPath: z.string().describe("Path to the log file"),
+    startLine: z.number().optional().describe("Starting line (0-based, default: 0)"),
+    lineCount: z.number().optional().describe("Number of lines to read (default: 100)"),
+  }),
+);
+registerToolInfo("run_command_grep", "Runs a command and returns only lines matching a given pattern (case-insensitive regex). Replacement for Unix grep on Windows — filtering in-process.",
+  z.object({
+    command: z.string().describe("Command to execute"),
+    pattern: z.string().describe("Pattern (regular expression) to filter lines"),
+    cwd: z.string().optional().describe("The directory in which the command will be run (must be inside MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS). Default: the primary project (MCP_PROJECT_ROOT)."),
+    timeoutMs: z.number().optional().describe("Timeout in milliseconds (1,000 – 600,000, default 60,000)."),
+  }),
+);
+registerToolInfo("list_allowed_roots", "Returns the allowed-roots configuration: primary project, all registered roots, existing projects under them.",
+  z.object({}),
+);
+registerToolInfo("resolve_cwd", "Verifies whether a path or friendly project name is inside allowed roots. Returns exact cwd to use.",
+  z.object({
+    path: z.string().describe("Path or friendly project name to verify"),
+  }),
+);
 
 // Refactoring tools
-_registerTool("universal_find_references", "Find all occurrences of a symbol. Without cwd searches ALL allowed roots. Language-aware mode adds role annotations.", [
-  ["symbol", "string", true, "Symbol to search for"],
-  ["cwd", "string", false, "Workspace root (default: all roots)"],
-  ["language", "string", false, "rust|typescript|python|cpp for role detection"],
-]);
-_registerTool("extract_code_block", "Extract full text of a function/struct/class. Annotation-aware, string/comment-safe bracket matching.", [
-  ["file", "string", true, "Source file path (absolute or relative)"],
-  ["symbol", "string", true, "Symbol name to extract"],
-  ["contextLines", "number", false, "Extra lines (default 0)"],
-  ["cwd", "string", false, "Working dir for relative paths"],
-]);
-_registerTool("split_file_by_declarations", "Split large file into modules based on declarations. Generates index files. Use dryRun first.", [
-  ["file", "string", true, "Source file to split"],
-  ["grouping", "array", true, "Array of { module, symbols }"],
-  ["targetDir", "string", false, "Output directory"],
-  ["dryRun", "boolean", false, "Preview only (default true)"],
-  ["cwd", "string", false, "Working dir for relative paths"],
-]);
-_registerTool("batch_apply_edits", "Apply multiple file edits atomically with rollback. Validates first. Handles CRLF.", [
-  ["edits", "array", true, "Array of { file, search, replace }"],
-  ["dryRun", "boolean", false, "Preview only (default true)"],
-]);
-_registerTool("generate_module_skeleton", "Generate module file by extracting symbols from source. Declaration-only filtering.", [
-  ["modulePath", "string", true, "Target file path"],
-  ["symbols", "array", true, "Symbol names to extract"],
-  ["sourceFile", "string", true, "Source file"],
-  ["dryRun", "boolean", false, "Preview only (default true)"],
-  ["cwd", "string", false, "Working dir for relative paths"],
-]);
-_registerTool("verify_refactor_safety", "Semantic diff: function count, signatures, exports, imports, comment ratio.", [
-  ["before", "string", true, "Original code"],
-  ["after", "string", true, "New code"],
-]);
+registerToolInfo("universal_find_references", "Find all occurrences of a symbol across a workspace. Structured output with file, line, column, context. Optional language-aware role detection.",
+  z.object({
+    symbol: z.string().describe("Symbol to search for (word-boundary match)"),
+    cwd: z.string().optional().describe("Workspace root to search (default: primary project root)"),
+    fileExtensions: z.array(z.string()).optional().describe("Restrict to these extensions (default: common source extensions)"),
+    excludePatterns: z.array(z.string()).optional().describe("Directories to skip (default: .git, node_modules, target, build, dist, __pycache__)"),
+    contextLines: z.number().optional().describe("Lines of context around each match (default: 1)"),
+    language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Optional language-aware mode for role detection"),
+  }),
+);
+registerToolInfo("extract_code_block", "Read the full text of a function, struct, class, or method from a file. Annotation-aware, string/comment-safe bracket matching.",
+  z.object({
+    file: z.string().describe("Source file path (absolute or relative to cwd)"),
+    symbol: z.string().describe("Symbol name to extract"),
+    contextLines: z.number().optional().describe("Extra lines before/after the block (default: 0)"),
+    cwd: z.string().optional().describe("Working directory for resolving relative file paths (default: primary project root)"),
+  }),
+);
+registerToolInfo("split_file_by_declarations", "Split a large file into multiple smaller files based on top-level declarations. Use dryRun: true (default) to preview before writing.",
+  z.object({
+    file: z.string().describe("Source file to split"),
+    grouping: z.array(z.object({
+      module: z.string().describe("Target filename (e.g. data.rs)"),
+      symbols: z.array(z.string()).describe("Symbol names to include in this module"),
+    })).describe("Module groupings"),
+    language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Language (auto-detected from extension)"),
+    targetDir: z.string().optional().describe("Where new files are written (default: dirname of file)"),
+    generateIndex: z.boolean().optional().describe("Create combining file (default: true)"),
+    dryRun: z.boolean().optional().describe("Preview only — write nothing (default: true)"),
+    overwrite: z.boolean().optional().describe("Allow overwriting existing target files (default: false)"),
+  }),
+);
+registerToolInfo("batch_apply_edits", "Apply multiple file edits atomically with rollback on failure. Validates all edits first. Use dryRun: true (default) to preview.",
+  z.object({
+    edits: z.array(z.object({
+      file: z.string().describe("File path inside allowed root"),
+      search: z.string().describe("Exact text to find (must match once unless replaceAll: true)"),
+      replace: z.string().describe("Replacement text"),
+      description: z.string().optional().describe("Human-readable description for audit log"),
+      replaceAll: z.boolean().optional().describe("Allow multiple matches (default: false)"),
+    })).describe("List of edits to apply"),
+    dryRun: z.boolean().optional().describe("Preview all changes without writing (default: true)"),
+  }),
+);
+registerToolInfo("generate_module_skeleton", "Generate a new module file with correct imports, declarations and visibility. Declaration-only filtering.",
+  z.object({
+    modulePath: z.string().describe("Target file path (e.g. src/ai/data.rs)"),
+    symbols: z.array(z.string()).describe("Symbol names to include"),
+    sourceFile: z.string().describe("Original file to extract symbols from"),
+    language: z.enum(["rust", "typescript", "python"]).optional().describe("Language (auto-detected from extension)"),
+    visibility: z.string().optional().describe("Visibility modifier (e.g. pub, pub(crate))"),
+    dryRun: z.boolean().optional().describe("Preview only (default: true)"),
+    overwrite: z.boolean().optional().describe("Allow overwriting existing file (default: false)"),
+  }),
+);
+registerToolInfo("verify_refactor_safety", "Semantic diff between old and new code. Catches accidental deletions before compilation. Checks: function count, signatures, exports, imports, comment ratio.",
+  z.object({
+    before: z.string().describe("Original code text"),
+    after: z.string().describe("New code text"),
+    language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Language (auto-detected from content)"),
+  }),
+);
 
 // Feedback tools
-_registerTool("report_tool_feedback", "Report bugs/improvements/feature requests. Writes to .mcp/FEEDBACK.md. Idempotent.", [
-  ["type", "string", true, "bug|improvement|feature_request"],
-  ["tool", "string", true, "Tool name"],
-  ["title", "string", true, "Short summary"],
-  ["description", "string", true, "Detailed description"],
-]);
-_registerTool("list_feedback", "List feedback entries. Filter by type, tool, status.", [
-  ["type", "string", false, "bug|improvement|feature_request"],
-  ["tool", "string", false, "Tool name filter"],
-  ["status", "string", false, "open|closed"],
-]);
-_registerTool("close_feedback", "Close feedback entry by ID with resolution text.", [
-  ["id", "string", true, "Entry ID"],
-  ["resolution", "string", false, "Resolution note"],
-]);
+registerToolInfo("report_tool_feedback", "Report a bug, improvement, or feature request about any MCP tool. Writes structured feedback to .mcp/FEEDBACK.md. Idempotent — duplicate reports are skipped.",
+  z.object({
+    type: z.enum(["bug", "improvement", "feature_request"]).describe("Type of feedback"),
+    tool: z.string().describe("Name of the MCP tool this feedback is about"),
+    title: z.string().describe("Short summary (1 line)"),
+    description: z.string().describe("Detailed description of the issue or request"),
+    reproduction: z.string().optional().describe("Steps to reproduce the issue"),
+    expected: z.string().optional().describe("What you expected to happen"),
+    suggestion: z.string().optional().describe("Your suggestion for a fix or improvement"),
+  }),
+);
+registerToolInfo("list_feedback", "List feedback entries from .mcp/FEEDBACK.md. Optionally filter by type, tool name, or status.",
+  z.object({
+    type: z.enum(["bug", "improvement", "feature_request"]).optional().describe("Filter by feedback type"),
+    tool: z.string().optional().describe("Filter by tool name"),
+    status: z.enum(["open", "closed"]).optional().describe("Filter by status"),
+  }),
+);
+registerToolInfo("close_feedback", "Close an existing feedback entry by ID — sets status to 'closed' and optionally adds resolution text.",
+  z.object({
+    id: z.string().describe("The feedback entry ID to close (from list_feedback output)"),
+    resolution: z.string().optional().describe("Resolution note explaining how the issue was addressed"),
+  }),
+);
 
 // ── Tool: list_tools ─────────────────────────────────────────
 
@@ -1241,3 +1298,25 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+// ── Graceful shutdown ──────────────────────────────────────
+
+function gracefulShutdown(signal: string) {
+  console.error(`[server] Received ${signal}, shutting down…`);
+  server.close().catch(() => {/* best-effort */});
+  process.exit(0);
+}
+
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+
+// ── Global error handlers ──────────────────────────────────
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled rejection:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[server] Uncaught exception:", err);
+  process.exit(1);
+});

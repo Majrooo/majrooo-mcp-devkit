@@ -49,20 +49,36 @@ const CATEGORY_MAP: Record<string, ToolInfo["category"]> = {
   report_tool_feedback: "feedback",
   list_feedback: "feedback",
   close_feedback: "feedback",
+  list_tools: "feedback",
+  help_tool: "feedback",
 };
 
 const registry = new Map<string, ToolInfo>();
 
+/** Minimal Zod type shape for introspection (avoids `any` casts). */
+interface ZodDef {
+  typeName?: string;
+  type?: string;
+  description?: string;
+  defaultValue?: () => unknown;
+}
+
+interface ZodShape {
+  _def?: ZodDef;
+  description?: string;
+}
+
 /** Extract parameter info from a Zod object schema via introspection. */
-function extractParams(schema: ZodObject): ToolParamInfo[] {
-  const shape = (schema as any).shape ?? {};
+function extractParams(schema: ZodObject, paramDescriptions?: Map<string, string>): ToolParamInfo[] {
+  const shape = (schema as { shape?: Record<string, ZodShape> }).shape ?? {};
   const params: ToolParamInfo[] = [];
-  for (const [key, zodType] of Object.entries<any>(shape)) {
-    const def = zodType._def ?? zodType;
+  for (const [key, zodType] of Object.entries(shape)) {
+    const def: ZodDef | undefined = zodType._def;
+    if (!def) continue;
     const typeName = def.typeName ?? def.type ?? "unknown";
     const isOptional = typeName === "ZodOptional" || typeName === "ZodDefault" || typeName === "optional";
-    const description = zodType.description ?? def.description ?? "";
-    let defaultVal: string | number | boolean | undefined;
+    const description = paramDescriptions?.get(key) ?? zodType.description ?? def.description ?? "";
+    let defaultVal: unknown;
     if (typeName === "ZodDefault" && def.defaultValue) {
       try { defaultVal = def.defaultValue(); } catch { /* ok */ }
     }
@@ -70,7 +86,7 @@ function extractParams(schema: ZodObject): ToolParamInfo[] {
       name: key,
       type: isOptional ? "optional" : String(typeName).replace("Zod", "").toLowerCase(),
       required: !isOptional,
-      default: defaultVal,
+      default: defaultVal as string | number | boolean | undefined,
       description,
     });
   }
@@ -82,9 +98,10 @@ export function registerToolInfo(
   name: string,
   description: string,
   schema: ZodObject,
+  paramDescriptions?: Map<string, string>,
 ): void {
   const category = CATEGORY_MAP[name] ?? "refactoring";
-  const params = extractParams(schema);
+  const params = extractParams(schema, paramDescriptions);
   registry.set(name, { name, description, category, params });
 }
 

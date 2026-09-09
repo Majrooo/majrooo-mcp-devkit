@@ -12,7 +12,7 @@
 
 ## Architecture & Conventions
 
-* **Architecture:** MCP server over stdio (`StdioServerTransport`). Module split:
+* **Architecture:** MCP server over stdio (`StdioServerTransport`). Version read dynamically from `package.json`. Module split:
   * `src/index.ts` — tool registration (`server.tool`), command execution, audit log, output normalization wiring, redirect reporting wiring.
   * `src/safety.ts` — allowed-roots registry, dangerous-pattern blacklist, directory-escape detection, write/read-target heuristics, project discovery, `resolveFilePath()` (shared file path resolution with alias lookup + allowed roots validation), `extractRedirectTargets`, `extractDestructiveTargets`.
   * `src/output.ts` — `stripAnsi` + `withUtf8Encoding` helpers.
@@ -22,7 +22,7 @@
 * **Styling:** N/A
 * **Testing:** Vitest — `npm test` (269 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
-  * `src/` — TypeScript sources (`index.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `__tests__/`)
+  * `src/` — TypeScript sources (`index.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
   * `README.md`, `PROJECT_CONTEXT.md`, `package.json`, `tsconfig.json`
 

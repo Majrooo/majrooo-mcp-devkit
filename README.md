@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-269%20passing-brightgreen)](#)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-blue)](#)
 
 > **Repository Access:** PUBLIC  
 > **Version:** 0.1.0 · **Tests:** 269 passing · **License:** GPL-3.0-or-later

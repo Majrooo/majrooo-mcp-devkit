@@ -4,6 +4,12 @@
   "description": "MCP devkit — safe command execution, code analysis and refactoring tools for AI assistants",
   "repository": "https://github.com/Majrooo/majrooo-mcp-devkit",
   "main": "build/index.js",
+  "bin": {
+    "majrooo-mcp-devkit": "build/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run src/__tests__",
