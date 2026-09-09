@@ -646,3 +646,83 @@ describe("extractDestructiveTargets", () => {
     expect(extractDestructiveTargets("npm run build")).toEqual([]);
   });
 });
+
+// ── Bypass attempts (best-effort documentation) ────────────
+// These tests document which bypass techniques are caught and which are
+// known limitations. The safety layer is a heuristic, not a sandbox.
+
+describe("bypass attempts — isDangerous", () => {
+  it("catches dangerous command hidden behind command substitution", () => {
+    // $(rm -rf /) inside a larger command — the regex still matches
+    expect(isDangerous("echo $(rm -rf /)")).not.toBeNull();
+  });
+
+  it("catches dangerous command with extra whitespace", () => {
+    expect(isDangerous("rm   -rf   /")).not.toBeNull();
+  });
+
+  it("catches dangerous command with mixed case", () => {
+    expect(isDangerous("RM -RF /")).not.toBeNull();
+  });
+
+  it("KNOWN LIMITATION: base64-encoded PowerShell bypasses pattern matching", () => {
+    // powershell -EncodedCommand <base64> — the actual command is hidden
+    // in base64 and isDangerous cannot decode it
+    const b64 = Buffer.from("Remove-Item -Recurse -Force C:\\temp").toString("base64");
+    expect(isDangerous(`powershell -EncodedCommand ${b64}`)).toBeNull();
+  });
+
+  it("catches variable indirection when dangerous text is literal in the command", () => {
+    // TARGET='rmdir /s /q'; $TARGET build — the literal "rmdir /s /q" IS in the string
+    expect(isDangerous("TARGET='rmdir /s /q'; $TARGET build")).not.toBeNull();
+  });
+
+  it("KNOWN LIMITATION: variable indirection hides the command entirely", () => {
+    // $X=rmdir; $X /s /q build — "rmdir" and "/s /q" are separated, regex doesn't compose them
+    expect(isDangerous("$X=rmdir; $X /s /q build")).toBeNull();
+  });
+
+  it("catches rm -rf even with leading noise", () => {
+    expect(isDangerous("echo done && rm -rf /tmp/test")).not.toBeNull();
+  });
+});
+
+describe("bypass attempts — findEscapeReason", () => {
+  it("catches cd .. in chained commands", () => {
+    expect(findEscapeReason("echo hi && cd ..")).not.toBeNull();
+  });
+
+  it("catches cd .. with semicolon separator", () => {
+    expect(findEscapeReason("npm run build; cd ..")).not.toBeNull();
+  });
+
+  it("catches pushd with absolute path in chain", () => {
+    expect(findEscapeReason("echo ok && pushd C:\\Windows")).not.toBeNull();
+  });
+
+  it("KNOWN LIMITATION: encoded cd bypasses escape detection", () => {
+    // PowerShell: Invoke-Expression "cd .." — the literal string "cd .."
+    // is not in the command text, so findEscapeReason doesn't see it
+    expect(findEscapeReason('Invoke-Expression "cd .."')).toBeNull();
+  });
+
+  it("KNOWN LIMITATION: variable expansion hides directory change", () => {
+    // $CMD="cd .."; $CMD — escape pattern doesn't match
+    expect(findEscapeReason("CMD='cd ..'; $CMD")).toBeNull();
+  });
+
+  it("allows cd within project (relative, no ..)", () => {
+    expect(findEscapeReason("cd src/components")).toBeNull();
+  });
+});
+
+describe("bypass attempts — isWithinAllowedDir", () => {
+  it("rejects command with backtick-escaped cd", () => {
+    // Some shells support `cd ..` — but it still matches the pattern
+    expect(isWithinAllowedDir("cd ..")).toBe(false);
+  });
+
+  it("allows normal commands", () => {
+    expect(isWithinAllowedDir("npm test")).toBe(true);
+  });
+});

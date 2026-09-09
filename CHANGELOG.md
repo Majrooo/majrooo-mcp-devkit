@@ -21,10 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `report_tool_feedback` — agent feedback tool for bugs, improvements, feature requests (writes to `.mcp/FEEDBACK.md`, idempotent, project-protected)
 - `list_feedback` — list feedback entries with optional filters (type, tool, status)
 - `close_feedback` — close feedback entries by ID with optional resolution text
+- `list_tools` — lists all available MCP tools with markdown-formatted descriptions, filterable by category
+- `help_tool` — detailed help for any tool including markdown parameter table
+- `textResult()` / `jsonResult()` helpers in `src/format.ts` for consistent MCP response formatting
 - Test fixtures (`src/__tests__/fixtures/`) with Rust, TypeScript, Python test data
-- 87 new tests (total 233, up from 147)
+- Bypass test suite: 14 tests documenting security heuristic coverage and known limitations (base64, variable indirection, encoded cd)
+- Integration test suite (`src/__tests__/handlers.test.ts`): 7 tests verifying tool output format
+- 116 new tests (total 263, up from 147)
 - Shared parsing helpers exported from `src/symbols.ts` (tokenizer, bracket matching, annotation detection)
 - `tsconfig.json`: exclude test fixtures from compilation
+
+### Changed
+- Upgraded `@modelcontextprotocol/sdk` from 1.29.0 to 1.30.0
 
 ### Fixed
 - `split_file_by_declarations`: now includes top-level `use`/`import` statements in generated modules
@@ -39,8 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `batch_apply_edits`: CRLF line endings now handled — normalizes to LF for comparison, preserves original endings in output
 - `extract_code_block`: added `cwd` parameter — relative paths now resolved against cwd or primary root
 - `universal_find_references`: without `cwd`, now searches ALL allowed roots (was defaulting to primary root only)
-- `list_tools` — new tool: lists all available MCP tools with descriptions, filterable by category (command/refactoring/feedback)
-- `help_tool` — new tool: detailed help for any tool including parameters, types, defaults, and description
 - LICENSE restructured — standard GPL text first, project copyright as appendix
 
 ## [0.1.0] - 2026-09-08

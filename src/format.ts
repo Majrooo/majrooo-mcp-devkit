@@ -15,14 +15,23 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-// src/format.ts — formatting of command failure responses.
+// src/format.ts — MCP response helpers + command failure formatting.
 //
-// `promisify(exec)` from child_process rejects with an Error whose `message`
-// is only `Command failed: <cmd>` — the true diagnostics live in `code`,
-// `signal`, `killed`, `stdout` and `stderr`. When the caller redirected the
-// output into a file (`npm test > test.log 2>&1`), even stdout/stderr are
-// empty. These helpers turn that bare error into a useful response.
+// `textResult(text)` returns a clean text response for human/agent consumption.
+// `jsonResult(data)` returns pretty-printed JSON for structured data.
+// Command failure helpers below turn bare exec errors into useful messages.
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { stripAnsi } from "./output.js";
+
+/** MCP tool result containing plain text (for human/agent reading). */
+export function textResult(text: string): CallToolResult {
+  return { content: [{ type: "text" as const, text }] };
+}
+
+/** MCP tool result containing pretty-printed JSON (for structured data). */
+export function jsonResult(data: unknown): CallToolResult {
+  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+}
 
 const WINDOWS_NOT_RECOGNIZED = /'([^']+)' is not recognized as an internal or external command/i;
 

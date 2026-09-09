@@ -42,7 +42,7 @@ import {
 } from "./safety.js";
 import { stripAnsi, withUtf8Encoding } from "./output.js";
 import { buildRedirectNote } from "./redirect.js";
-import { composeFailureMessage, extractExecFailure, formatCommandError } from "./format.js";
+import { composeFailureMessage, extractExecFailure, formatCommandError, textResult, jsonResult } from "./format.js";
 import { universalFindReferences, extractCodeBlock, type FileReferences } from "./symbols.js";
 import { splitFileByDeclarations } from "./split.js";
 import { batchApplyEdits } from "./batch.js";
@@ -750,7 +750,7 @@ server.tool(
       const resolved = resolveCwdRequested(target);
       if (!resolved.ok) {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: resolved.error }, null, 2) }],
+          ...textResult(`**Error:** ${resolved.error}`),
           isError: true,
         };
       }
@@ -783,9 +783,19 @@ server.tool(
     // Audit log
     await writeAuditLog({ tool: "universal_find_references", symbol, cwd: resolvedCwd ?? "all_roots", totalMatches });
 
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify({ symbol, totalMatches, files: mergedFiles }, null, 2) }],
-    };
+    // Format output as readable text
+    const out: string[] = [`Symbol: ${symbol}`, `Total matches: ${totalMatches}`, ""];
+    for (const f of mergedFiles) {
+      out.push(f.file + ":");
+      for (const m of f.matches) {
+        const role = m.role ? ` [${m.role}]` : "";
+        out.push(`  Line ${m.line}:${m.column}${role} — ${m.context.trim()}`);
+      }
+      out.push("");
+    }
+    if (mergedFiles.length === 0) out.push("(no matches found)");
+
+    return textResult(out.join("\n"));
   },
 );
 
@@ -813,8 +823,21 @@ server.tool(
 
     await writeAuditLog({ tool: "extract_code_block", file: resolvedFile, symbol });
 
+    // Format output as readable text
+    if ("error" in result) {
+      return { content: [{ type: "text" as const, text: `Error: ${result.error}` }], isError: true };
+    }
+    if ("matches" in result) {
+      const out: string[] = [`Symbol: ${symbol} — ${result.matches.length} matches in ${resolvedFile}`, ""];
+      for (const m of result.matches) {
+        out.push(`--- Lines ${m.startLine}-${m.endLine} ---`);
+        out.push(m.text);
+        out.push("");
+      }
+      return { content: [{ type: "text" as const, text: out.join("\n") }] };
+    }
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      content: [{ type: "text" as const, text: `${result.file}:${result.startLine}-${result.endLine}\n${result.text}` }],
     };
   },
 );
@@ -841,7 +864,17 @@ server.tool(
   async ({ file, grouping, targetDir, language, generateIndex, dryRun, overwrite }) => {
     const result = splitFileByDeclarations(file, grouping, { targetDir, language, generateIndex, dryRun, overwrite });
     await writeAuditLog({ tool: "split_file_by_declarations", file, dryRun: dryRun ?? true, modules: grouping.length });
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    if ("error" in result) {
+      return { content: [{ type: "text" as const, text: `Error: ${result.error}` }], isError: true };
+    }
+    const out: string[] = [`${result.dryRun ? "DRY RUN" : "Applied"}: ${result.sourceFile} (${result.language})`, ""];
+    if (result.imports) out.push(`Imports (${result.imports.length}):`, ...result.imports, "");
+    for (const p of result.preview) {
+      const impl = p.implBlocks ? ` + ${p.implBlocks} impl blocks` : "";
+      out.push(`${p.module}: [${p.symbols.join(", ")}]${impl} → ${p.targetFile}`);
+    }
+    if (result.indexFile) out.push("", `Index: ${result.indexFile}`);
+    return { content: [{ type: "text" as const, text: out.join("\n") }] };
   },
 );
 
@@ -887,7 +920,16 @@ server.tool(
   async ({ modulePath, symbols, sourceFile, language, dryRun, overwrite }) => {
     const result = generateModuleSkeleton(modulePath, symbols, sourceFile, { language, dryRun, overwrite });
     await writeAuditLog({ tool: "generate_module_skeleton", modulePath, symbols, dryRun: dryRun ?? true });
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    if ("error" in result) {
+      const unknowns = "unknownSymbols" in result && result.unknownSymbols ? `\nUnknown: ${result.unknownSymbols.join(", ")}` : "";
+      return { content: [{ type: "text" as const, text: `Error: ${result.error}${unknowns}` }], isError: true };
+    }
+    const out = [
+      `${result.dryRun ? "DRY RUN" : "Applied"}: ${result.modulePath} (${result.language})`,
+      "",
+      result.content,
+    ];
+    return { content: [{ type: "text" as const, text: out.join("\n") }] };
   },
 );
 
@@ -906,7 +948,13 @@ server.tool(
   async ({ before, after, language }) => {
     const result = verifyRefactorSafety(before, after, { language });
     await writeAuditLog({ tool: "verify_refactor_safety", safe: result.safe, checksCount: result.checks.length });
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    const out: string[] = [`Result: ${result.safe ? "SAFE" : "CHANGES DETECTED"}`, ""];
+    for (const c of result.checks) {
+      const icon = c.status === "error" ? "❌" : (c.status === "warning" ? "⚠️" : "ℹ️");
+      const nums = c.before !== undefined ? ` (${c.before} → ${c.after})` : "";
+      out.push(`${icon} ${c.check}${nums} — ${c.detail}`);
+    }
+    return { content: [{ type: "text" as const, text: out.join("\n") }] };
   },
 );
 
@@ -1076,9 +1124,43 @@ server.tool(
   async ({ category }) => {
     const tools = listToolInfos(category);
     await writeAuditLog({ tool: "list_tools", category: category ?? "all", resultCount: tools.length });
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify({ total: tools.length, tools }, null, 2) }],
+
+    const groups: Record<string, typeof tools> = {};
+    for (const t of tools) {
+      const cat = t.category;
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(t);
+    }
+
+    const lines: string[] = [];
+    lines.push(`# MCP Tools (${tools.length} total)\n`);
+
+    const categoryLabels: Record<string, string> = {
+      command: "Command Tools",
+      refactoring: "Refactoring Tools",
+      feedback: "Feedback Tools",
     };
+
+    for (const [cat, catTools] of Object.entries(groups)) {
+      lines.push(`## ${categoryLabels[cat] ?? cat}\n`);
+      for (const t of catTools) {
+        const reqParams = t.params.filter((p) => p.required);
+        const optParams = t.params.filter((p) => !p.required);
+        const sig = reqParams.length > 0
+          ? ` — _${reqParams.map((p) => p.name).join(", ")}_`
+          : "";
+        lines.push(`- **${t.name}**${sig}: ${t.description}`);
+        if (optParams.length > 0) {
+          for (const p of optParams) {
+            const def = p.default !== undefined ? ` (default: \`${p.default}\`)` : "";
+            lines.push(`  - _${p.name}_: ${p.description}${def}`);
+          }
+        }
+      }
+      lines.push("");
+    }
+
+    return textResult(lines.join("\n"));
   },
 );
 
@@ -1094,14 +1176,32 @@ server.tool(
     const info = getToolInfo(toolName);
     if (!info) {
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) }],
+        ...textResult(`**Error:** Unknown tool: \`${toolName}\``),
         isError: true,
       };
     }
     await writeAuditLog({ tool: "help_tool", helpFor: toolName });
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(info, null, 2) }],
-    };
+
+    const lines: string[] = [];
+    lines.push(`# ${info.name}\n`);
+    lines.push(`${info.description}\n`);
+    lines.push(`**Category:** ${info.category}\n`);
+
+    if (info.params.length > 0) {
+      lines.push("## Parameters\n");
+      lines.push("| Name | Type | Required | Default | Description |");
+      lines.push("|------|------|----------|---------|-------------|");
+      for (const p of info.params) {
+        const req = p.required ? "yes" : "no";
+        const def = p.default !== undefined ? `\`${p.default}\`` : "—";
+        lines.push(`| \`${p.name}\` | ${p.type} | ${req} | ${def} | ${p.description} |`);
+      }
+      lines.push("");
+    } else {
+      lines.push("_No parameters._\n");
+    }
+
+    return textResult(lines.join("\n"));
   },
 );
 

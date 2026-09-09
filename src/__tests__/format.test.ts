@@ -4,6 +4,8 @@ import {
   extractExecFailure,
   formatCapturedOutput,
   formatCommandError,
+  textResult,
+  jsonResult,
 } from "../format.js";
 
 describe("extractExecFailure", () => {
@@ -117,5 +119,44 @@ describe("formatCommandError", () => {
   it("passes through other errors unchanged", () => {
     const raw = "some other error";
     expect(formatCommandError(raw)).toBe(raw);
+  });
+});
+
+describe("textResult", () => {
+  it("returns a CallToolResult with plain text", () => {
+    const result = textResult("hello world");
+    expect(result.content).toHaveLength(1);
+    const block = result.content[0];
+    expect(block.type).toBe("text");
+    expect((block as { type: "text"; text: string }).text).toBe("hello world");
+  });
+
+  it("preserves newlines in text", () => {
+    const result = textResult("line1\nline2\nline3");
+    const block = result.content[0] as { type: "text"; text: string };
+    expect(block.text).toBe("line1\nline2\nline3");
+  });
+
+  it("does not have isError", () => {
+    const result = textResult("ok");
+    expect(result.isError).toBeUndefined();
+  });
+});
+
+describe("jsonResult", () => {
+  it("returns pretty-printed JSON", () => {
+    const result = jsonResult({ foo: "bar", count: 42 });
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain('"foo": "bar"');
+    expect(text).toContain('"count": 42');
+  });
+
+  it("handles nested objects", () => {
+    const result = jsonResult({ items: [{ id: 1 }] });
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    const parsed = JSON.parse(text);
+    expect(parsed.items[0].id).toBe(1);
   });
 });
