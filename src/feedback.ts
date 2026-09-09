@@ -26,7 +26,7 @@ const SEPARATOR = "\n---\n";
 
 export interface FeedbackEntry {
   id: string;
-  date: string;
+  date: string; // ISO timestamp (YYYY-MM-DDTHH:MM:SSZ)
   tool: string;
   type: "bug" | "improvement" | "feature_request";
   status: "open" | "closed";
@@ -36,6 +36,7 @@ export interface FeedbackEntry {
   expected?: string;
   suggestion?: string;
   resolution?: string;
+  closedAt?: string;
 }
 
 export interface FeedbackResult { written: boolean; id: string; filePath: string; reason?: string; }
@@ -64,7 +65,8 @@ function formatEntry(entry: FeedbackEntry): string {
   const lines: string[] = [];
   lines.push(`## [${entry.type.toUpperCase().replace("_", " ")}] ${entry.title}`);
   lines.push(`> **id:** ${entry.id}`);
-  lines.push(`> **date:** ${entry.date}`);
+  const displayDate = entry.date.length > 10 ? entry.date.replace("T", " ").replace(/Z$/, " UTC") : entry.date;
+  lines.push(`> **date:** ${displayDate}`);
   lines.push(`> **tool:** ${entry.tool}`);
   lines.push(`> **type:** ${entry.type}`);
   lines.push(`> **status:** ${entry.status}`);
@@ -104,7 +106,7 @@ export function reportToolFeedback(
   }
 
   const id = generateId(input.tool, input.title);
-  const date = new Date().toISOString().split("T")[0]!;
+  const date = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const entry: FeedbackEntry = {
     id, date, tool: input.tool, type: input.type, status: "open",
     title: input.title, description: input.description,
@@ -159,8 +161,9 @@ export function readFeedbackEntries(projectRoot: string, options: FeedbackListOp
     const tool = (block.match(/> \*\*tool:\*\* (.+)/) ?? [])[1]?.trim() ?? "";
     const status = (block.match(/> \*\*status:\*\* (.+)/) ?? [])[1]?.trim() as FeedbackEntry["status"] ?? "open";
     const resolution = (block.match(/> \*\*resolution:\*\* (.+)/) ?? [])[1]?.trim();
+    const closedAt = (block.match(/> \*\\*closedAt:\\*\\* (.+)/) ?? [])[1]?.trim();
     const desc = block.split("\n\n")[1]?.trim() ?? "";
-    entries.push({ id, date, tool, type, status, title, description: desc, resolution });
+    entries.push({ id, date, tool, type, status, title, description: desc, resolution, closedAt });
   }
   // Apply filters
   let filtered = entries;
@@ -198,9 +201,10 @@ export function closeFeedback(
   const beforeStatus = content.slice(0, statusLineStart);
   const afterStatus = content.slice(statusLineStart);
   // Replace only the first "status: open" after this id
+  const closeTime = new Date().toISOString().replace(/\.\d{3}Z$/, "Z").replace("T", " ").replace(/Z$/, " UTC");
   const closedLine = resolution
-    ? `> **status:** closed\n> **resolution:** ${resolution}`
-    : `> **status:** closed`;
+    ? `> **status:** closed\n> **resolution:** ${resolution}\n> **closedAt:** ${closeTime}`
+    : `> **status:** closed\n> **closedAt:** ${closeTime}`;
   const newAfterStatus = afterStatus.replace(
     /^> \*\*status:\*\* open/m,
     closedLine,

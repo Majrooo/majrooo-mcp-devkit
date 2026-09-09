@@ -43,13 +43,33 @@ export interface SkeletonError {
 function extractImports(sourceContent: string, lang: string): string[] {
   const lines = sourceContent.split(/\r?\n/);
   const imports: string[] = [];
+  let inMultiLine = false; // collecting a multi-line import block
   for (const line of lines) {
-    if (line.length === 0 || /^\s/.test(line)) continue; // skip empty / indented lines
     const trimmed = line.trim();
-    if (lang === "rust" && /^use\s+/.test(trimmed)) imports.push(line);
-    else if (lang === "typescript" && /^import\s+/.test(trimmed)) imports.push(line);
-    else if (lang === "python" && /^(import|from)\s+/.test(trimmed)) imports.push(line);
-    else if (lang === "cpp" && /^#include\s+/.test(trimmed)) imports.push(line);
+
+    // Continue collecting multi-line import block
+    if (inMultiLine) {
+      imports.push(line);
+      if (/;\s*$/.test(trimmed) || (trimmed === ");" && lang === "python")) {
+        inMultiLine = false;
+      }
+      continue;
+    }
+
+    if (trimmed.length === 0) continue;
+
+    if (lang === "rust" && /^use\s+/.test(trimmed)) {
+      imports.push(line);
+      if (/\{[^}]*$/.test(trimmed) && !/;\s*$/.test(trimmed)) inMultiLine = true;
+    } else if (lang === "typescript" && /^import\s+/.test(trimmed)) {
+      imports.push(line);
+      if (/\{[^}]*$/.test(trimmed) && !/from\s+/.test(trimmed)) inMultiLine = true;
+    } else if (lang === "python" && /^(import|from)\s+/.test(trimmed)) {
+      imports.push(line);
+      if (/\([^)]*$/.test(trimmed)) inMultiLine = true;
+    } else if (lang === "cpp" && /^#include\s+/.test(trimmed)) {
+      imports.push(line);
+    }
   }
   return imports;
 }

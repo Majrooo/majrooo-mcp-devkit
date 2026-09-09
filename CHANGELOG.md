@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Bypass test suite: 14 tests documenting security heuristic coverage and known limitations (base64, variable indirection, encoded cd)
 - Integration test suite (`src/__tests__/handlers.test.ts`): 7 tests verifying tool output format
 - Shared `resolveFilePath()` helper in `src/safety.ts` — unified file path resolution with alias lookup + allowed roots validation for all file-based tools
-- `cwd` parameter for `split_file_by_declarations` and `generate_module_skeleton` (relative path resolution)
+- `cwd` parameter for `split_file_by_declarations`, `generate_module_skeleton`, and `batch_apply_edits` (relative path resolution)
 - 6 new tests for `resolveFilePath()` (total 269, up from 263)
 - 116 new tests (total 263, up from 147)
 - Shared parsing helpers exported from `src/symbols.ts` (tokenizer, bracket matching, annotation detection)
@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Refactored `extract_code_block` to use shared `resolveFilePath()` (replaced inline ad-hoc path resolution with safety validation)
 
 ### Fixed
+- `batch_apply_edits`: added `cwd` parameter + `resolveFilePath()` — now resolves relative paths (was returning "Cannot read file" for files in newly created subdirectories)
+- `split_file_by_declarations` & `generate_module_skeleton`: multi-line `use`/`import` blocks now collected completely (was truncated at first line, breaking generated imports)
+- `extract_code_block` & `split_file_by_declarations`: removed `#` → line comment handling from tokenizer — Rust `#[derive(...)]`/`#[allow(...)]` attributes no longer cause missing closing braces in extracted functions
 - `split_file_by_declarations`: now includes top-level `use`/`import` statements in generated modules
 - `split_file_by_declarations`: detects and appends `impl` blocks associated with extracted types (Rust)
 - `split_file_by_declarations` & `generate_module_skeleton`: relative file paths now resolve correctly via shared `resolveFilePath()` helper (was returning "Cannot read file")

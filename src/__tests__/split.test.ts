@@ -309,4 +309,37 @@ describe("splitFileByDeclarations", () => {
     // Config is used in non-cfg code → plain import (no cfg needed)
     expect(initContent).toContain("use super::Config;");
   });
+
+  it("multi-line use statements are collected completely", () => {
+    tmp = tmpDir();
+    const src = path.join(tmp, "multiline.rs");
+    fs.writeFileSync(src, `use std::collections::HashMap;
+use crate::{
+    TurnPhase,
+    InGameSubState,
+    Wind,
+    Cannon,
+};
+
+pub struct Foo {
+    pub value: u32,
+}
+
+pub fn bar() -> u32 {
+    42
+}
+`, "utf-8");
+    const result = splitFileByDeclarations(src, [
+      { module: "foo.rs", symbols: ["Foo"] },
+    ], { dryRun: false, targetDir: tmp });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(path.join(tmp, "foo.rs"), "utf-8");
+    // Must contain complete multi-line use block, not truncated
+    expect(content).toContain("use crate::{");
+    expect(content).toContain("    TurnPhase,");
+    expect(content).toContain("    Cannon,");
+    expect(content).toContain("};");
+    expect(content).toContain("use std::collections::HashMap;");
+  });
 });

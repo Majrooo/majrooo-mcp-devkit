@@ -231,4 +231,39 @@ describe("extractCodeBlock", () => {
     const hasClass = texts.some((t) => t.includes("class AiConfig"));
     expect(hasClass).toBe(true);
   });
+
+  it("Rust #[allow] attribute does not break brace counting", () => {
+    // Simulates a function with nested loops and an attribute inside
+    const content = `pub fn pixel_perfect_hit_system() {
+    #[allow(unused)]
+    for projectile in projectiles.iter() {
+        for check_pos in positions.iter() {
+            for tank in tanks.iter() {
+                // inner
+            }
+        }
+    }
+}`;
+    // Use extractCodeBlock on a temp file
+    const fs = require("fs");
+    const os = require("os");
+    const tmpFile = require("path").join(os.tmpdir(), `attr-test-${Date.now()}.rs`);
+    fs.writeFileSync(tmpFile, content, "utf-8");
+    try {
+      const result = extractCodeBlock(tmpFile, "pixel_perfect_hit_system");
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      const texts = "matches" in result
+        ? result.matches.map((m) => m.text)
+        : [result.text];
+      const hasAllBraces = texts.some((t) => {
+        const opens = (t.match(/{/g) || []).length;
+        const closes = (t.match(/}/g) || []).length;
+        return opens === closes && opens >= 4;
+      });
+      expect(hasAllBraces).toBe(true);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
 });

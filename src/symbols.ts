@@ -239,7 +239,6 @@ export function advanceTokenizer(state: TokenizerState, ch: string, nextCh: stri
   }
   if (ch === "/" && nextCh === "/") { state.inLineComment = true; return true; }
   if (ch === "/" && nextCh === "*") { state.inBlockComment = true; return true; }
-  if (ch === "#" && nextCh !== "!") { state.inLineComment = true; return true; }
   if (ch === "'" || ch === '"' || ch === "`") { state.inString = ch; return true; }
   return false;
 }

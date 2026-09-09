@@ -921,9 +921,19 @@ server.tool(
       replaceAll: z.boolean().optional().describe("Allow multiple matches (default: false)"),
     })).describe("List of edits to apply"),
     dryRun: z.boolean().optional().describe("Preview all changes without writing (default: true)"),
+    cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   },
-  async ({ edits, dryRun }) => {
-    const result = batchApplyEdits(edits, { dryRun });
+  async ({ edits, dryRun, cwd }) => {
+    // Resolve relative file paths against cwd or primary root
+    const resolvedEdits = [];
+    for (const edit of edits) {
+      const fileResult = resolveFilePath(edit.file, cwd);
+      if (!fileResult.ok) {
+        return { content: [{ type: "text" as const, text: `Error: ${fileResult.error}` }], isError: true };
+      }
+      resolvedEdits.push({ ...edit, file: fileResult.filePath });
+    }
+    const result = batchApplyEdits(resolvedEdits, { dryRun });
     await writeAuditLog({ tool: "batch_apply_edits", totalEdits: edits.length, dryRun: dryRun ?? true });
     return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
   },
@@ -1155,6 +1165,7 @@ registerToolInfo("batch_apply_edits", "Apply multiple file edits atomically with
       replaceAll: z.boolean().optional().describe("Allow multiple matches (default: false)"),
     })).describe("List of edits to apply"),
     dryRun: z.boolean().optional().describe("Preview all changes without writing (default: true)"),
+    cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   }),
 );
 registerToolInfo("generate_module_skeleton", "Generate a new module file with correct imports, declarations and visibility. Declaration-only filtering.",

@@ -118,6 +118,7 @@ Apply multiple file edits atomically with rollback on failure. Validates all edi
 |---|---|---|---|
 | `edits` | object[] | — | `[{ file, search, replace, description?, replaceAll? }]` |
 | `dryRun` | boolean | true | Preview all changes without writing |
+| `cwd` | string | primary root | Working dir for resolving relative file paths |
 
 ### `generate_module_skeleton`
 
