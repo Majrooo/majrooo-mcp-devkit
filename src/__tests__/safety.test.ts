@@ -36,6 +36,7 @@ import {
   parseProjectAliases,
   findAliasByName,
   findAliasByPath,
+  resolveFilePath,
   type ProjectAlias,
 } from "../safety.js";
 
@@ -724,5 +725,45 @@ describe("bypass attempts — isWithinAllowedDir", () => {
 
   it("allows normal commands", () => {
     expect(isWithinAllowedDir("npm test")).toBe(true);
+  });
+});
+
+// ── resolveFilePath ────────────────────────────────────────
+
+describe("resolveFilePath", () => {
+  const roots = ["D:\\W\\TS\\majrooo-mcp-devkit", "D:\\W\\TS\\nase-zasoby"];
+  const regs = buildRegistrations(roots);
+
+  it("returns absolute path as-is when inside allowed root", () => {
+    const r = resolveFilePath("D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    expect(r).toEqual({ ok: true, filePath: "D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts" });
+  });
+
+  it("resolves relative path against primary root when cwd omitted", () => {
+    const r = resolveFilePath("src/index.ts", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    expect(r).toEqual({ ok: true, filePath: "D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts" });
+  });
+
+  it("resolves relative path against provided cwd", () => {
+    const r = resolveFilePath("src/index.ts", "D:\\W\\TS\\majrooo-mcp-devkit", regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    expect(r).toEqual({ ok: true, filePath: "D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts" });
+  });
+
+  it("rejects absolute path outside allowed roots", () => {
+    const r = resolveFilePath("C:\\Windows\\System32\\config.sys", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("nie je v žiadnom povolenom koreni");
+  });
+
+  it("rejects relative path that resolves outside allowed roots", () => {
+    const r = resolveFilePath("../../etc/passwd", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("nie je v žiadnom povolenom koreni");
+  });
+
+  it("rejects invalid cwd", () => {
+    const r = resolveFilePath("src/index.ts", "C:\\Windows", regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("povolených koreňov");
   });
 });

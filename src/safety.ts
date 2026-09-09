@@ -218,7 +218,62 @@ export function resolveCwdRequested(
         `\nAk chceš spustiť príkaz v inom projekte, zadaj parameter "cwd" s povoleným koreňom.`,
     };
   }
-  return { ok: true, cwd: requested, registration };
+  return { ok: true, cwd: requested, registration } as ResolvedContext;
+}
+
+// ── File path resolution (shared helper for file-based tools) ──
+
+export type FilePathResult = { ok: true; filePath: string } | { ok: false; error: string };
+
+/**
+ * Resolve a file path (absolute or relative) against `cwd` or the primary root.
+ * Validates the resolved path is inside an allowed root.
+ *
+ * - absolute path → validate against allowed roots, return as-is;
+ * - relative path → resolve against `cwd` (or primary root), then validate;
+ * - alias lookup: bare tokens without separators are checked against project aliases.
+ */
+export function resolveFilePath(
+  filePath: string,
+  cwd?: string,
+  registrations: Registration[] = REGISTRATIONS,
+  allowedRoots: string[] = ALLOWED_ROOTS,
+  baseDir: string = PRIMARY_ROOT,
+): FilePathResult {
+  // Resolve the base directory for relative paths
+  let basePath = baseDir;
+  if (cwd && cwd.trim()) {
+    let resolved = cwd.trim();
+    // Alias lookup for bare tokens
+    if (!resolved.includes("\\") && !resolved.includes("/")) {
+      const alias = findAliasByName(resolved);
+      if (alias) resolved = alias.path;
+    }
+    const cwdResult = resolveCwdRequested(resolved, registrations, allowedRoots, baseDir);
+    if (!cwdResult.ok) return { ok: false, error: cwdResult.error };
+    basePath = cwdResult.cwd;
+  }
+
+  let resolved: string;
+  if (path.isAbsolute(filePath)) {
+    resolved = path.resolve(filePath);
+  } else {
+    resolved = path.resolve(basePath, filePath);
+  }
+
+  // Validate against allowed roots
+  const registration = findMatchingRegistration(resolved, registrations);
+  if (!registration) {
+    return {
+      ok: false,
+      error:
+        `Súbor '${resolved}' nie je v žiadnom povolenom koreni.\n` +
+        `Povolené korene (MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS):\n` +
+        allowedRoots.map((r) => `  - ${r}`).join("\n"),
+    };
+  }
+
+  return { ok: true, filePath: resolved };
 }
 
 // ── Project discovery (read-only, used by list_allowed_roots / resolve_cwd) ─

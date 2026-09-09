@@ -2,11 +2,11 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-269%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-blue)](#)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 237 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 269 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -108,6 +108,7 @@ Split a large file into multiple smaller files based on top-level declarations. 
 | `generateIndex` | boolean | true | Create combining file |
 | `dryRun` | boolean | true | Preview only — write nothing |
 | `overwrite` | boolean | false | Allow overwriting existing targets |
+| `cwd` | string | primary root | Working dir for resolving relative file paths |
 
 ### `batch_apply_edits`
 
@@ -130,6 +131,7 @@ Generate a new module file with extracted symbols from a source file. Returns er
 | `language` | string | auto-detect | `"rust"`, `"typescript"`, `"python"` |
 | `dryRun` | boolean | true | Preview only |
 | `overwrite` | boolean | false | Allow overwriting existing file |
+| `cwd` | string | primary root | Working dir for resolving relative file paths |
 
 ### `verify_refactor_safety`
 

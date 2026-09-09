@@ -35,6 +35,7 @@ import {
   findAllowedProjects,
   findAliasByName,
   findAliasByPath,
+  resolveFilePath,
   PROJECT_ALIASES,
   extractRedirectTargets,
   extractDestructiveTargets,
@@ -814,11 +815,11 @@ server.tool(
   },
   async ({ file, symbol, contextLines, cwd }) => {
     // Resolve relative file paths against cwd or primary root
-    let resolvedFile = file;
-    if (!path.isAbsolute(file)) {
-      const basePath = cwd ?? ALLOWED_ROOTS[0] ?? process.cwd();
-      resolvedFile = path.resolve(basePath, file);
+    const fileResult = resolveFilePath(file, cwd);
+    if (!fileResult.ok) {
+      return { content: [{ type: "text" as const, text: `Error: ${fileResult.error}` }], isError: true };
     }
+    const resolvedFile = fileResult.filePath;
     const result = extractCodeBlock(resolvedFile, symbol, { contextLines });
 
     await writeAuditLog({ tool: "extract_code_block", file: resolvedFile, symbol });
@@ -860,8 +861,24 @@ server.tool(
     generateIndex: z.boolean().optional().describe("Create combining file (default: true)"),
     dryRun: z.boolean().optional().describe("Preview only — write nothing (default: true)"),
     overwrite: z.boolean().optional().describe("Allow overwriting existing target files (default: false)"),
+    cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   },
-  async ({ file, grouping, targetDir, language, generateIndex, dryRun, overwrite }) => {
+  async (params) => {
+    const { grouping, language, generateIndex, dryRun, overwrite, cwd } = params;
+    // Resolve relative file paths against cwd or primary root
+    const fileResult = resolveFilePath(params.file, cwd);
+    if (!fileResult.ok) {
+      return { content: [{ type: "text" as const, text: `Error: ${fileResult.error}` }], isError: true };
+    }
+    let file = fileResult.filePath;
+    let targetDir = params.targetDir;
+    if (targetDir) {
+      const dirResult = resolveFilePath(targetDir, cwd);
+      if (!dirResult.ok) {
+        return { content: [{ type: "text" as const, text: `Error: ${dirResult.error}` }], isError: true };
+      }
+      targetDir = dirResult.filePath;
+    }
     const result = splitFileByDeclarations(file, grouping, { targetDir, language, generateIndex, dryRun, overwrite });
     await writeAuditLog({ tool: "split_file_by_declarations", file, dryRun: dryRun ?? true, modules: grouping.length });
     if ("error" in result) {
@@ -916,8 +933,21 @@ server.tool(
     language: z.enum(["rust", "typescript", "python"]).optional().describe("Language (auto-detected)"),
     dryRun: z.boolean().optional().describe("Preview only (default: true)"),
     overwrite: z.boolean().optional().describe("Allow overwriting existing file (default: false)"),
+    cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   },
-  async ({ modulePath, symbols, sourceFile, language, dryRun, overwrite }) => {
+  async (params) => {
+    const { symbols, language, dryRun, overwrite, cwd } = params;
+    // Resolve relative file paths against cwd or primary root
+    const moduleResult = resolveFilePath(params.modulePath, cwd);
+    if (!moduleResult.ok) {
+      return { content: [{ type: "text" as const, text: `Error: ${moduleResult.error}` }], isError: true };
+    }
+    const sourceResult = resolveFilePath(params.sourceFile, cwd);
+    if (!sourceResult.ok) {
+      return { content: [{ type: "text" as const, text: `Error: ${sourceResult.error}` }], isError: true };
+    }
+    const modulePath = moduleResult.filePath;
+    const sourceFile = sourceResult.filePath;
     const result = generateModuleSkeleton(modulePath, symbols, sourceFile, { language, dryRun, overwrite });
     await writeAuditLog({ tool: "generate_module_skeleton", modulePath, symbols, dryRun: dryRun ?? true });
     if ("error" in result) {
@@ -1080,6 +1110,7 @@ _registerTool("split_file_by_declarations", "Split large file into modules based
   ["grouping", "array", true, "Array of { module, symbols }"],
   ["targetDir", "string", false, "Output directory"],
   ["dryRun", "boolean", false, "Preview only (default true)"],
+  ["cwd", "string", false, "Working dir for relative paths"],
 ]);
 _registerTool("batch_apply_edits", "Apply multiple file edits atomically with rollback. Validates first. Handles CRLF.", [
   ["edits", "array", true, "Array of { file, search, replace }"],
@@ -1090,6 +1121,7 @@ _registerTool("generate_module_skeleton", "Generate module file by extracting sy
   ["symbols", "array", true, "Symbol names to extract"],
   ["sourceFile", "string", true, "Source file"],
   ["dryRun", "boolean", false, "Preview only (default true)"],
+  ["cwd", "string", false, "Working dir for relative paths"],
 ]);
 _registerTool("verify_refactor_safety", "Semantic diff: function count, signatures, exports, imports, comment ratio.", [
   ["before", "string", true, "Original code"],

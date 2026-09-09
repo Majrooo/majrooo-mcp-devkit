@@ -27,16 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Test fixtures (`src/__tests__/fixtures/`) with Rust, TypeScript, Python test data
 - Bypass test suite: 14 tests documenting security heuristic coverage and known limitations (base64, variable indirection, encoded cd)
 - Integration test suite (`src/__tests__/handlers.test.ts`): 7 tests verifying tool output format
+- Shared `resolveFilePath()` helper in `src/safety.ts` — unified file path resolution with alias lookup + allowed roots validation for all file-based tools
+- `cwd` parameter for `split_file_by_declarations` and `generate_module_skeleton` (relative path resolution)
+- 6 new tests for `resolveFilePath()` (total 269, up from 263)
 - 116 new tests (total 263, up from 147)
 - Shared parsing helpers exported from `src/symbols.ts` (tokenizer, bracket matching, annotation detection)
 - `tsconfig.json`: exclude test fixtures from compilation
 
 ### Changed
 - Upgraded `@modelcontextprotocol/sdk` from 1.29.0 to 1.30.0
+- Refactored `extract_code_block` to use shared `resolveFilePath()` (replaced inline ad-hoc path resolution with safety validation)
 
 ### Fixed
 - `split_file_by_declarations`: now includes top-level `use`/`import` statements in generated modules
 - `split_file_by_declarations`: detects and appends `impl` blocks associated with extracted types (Rust)
+- `split_file_by_declarations` & `generate_module_skeleton`: relative file paths now resolve correctly via shared `resolveFilePath()` helper (was returning "Cannot read file")
 - `split_file_by_declarations`: finds private declarations (`fn`, `const`, `struct`) and `pub(crate)`/`pub(super)` items
 - `generate_module_skeleton`: filters `extractCodeBlock` matches to declaration-only — no more garbled output from usage sites
 - `generate_module_skeleton`: imports now only collected from top-level (no indented `use` statements)
