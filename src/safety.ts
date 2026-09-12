@@ -17,6 +17,7 @@
  */
 // src/safety.ts — Safety rules for command execution
 import path from "path";
+import { existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { readdir } from "fs/promises";
 
@@ -230,7 +231,10 @@ export type FilePathResult = { ok: true; filePath: string } | { ok: false; error
  * Validates the resolved path is inside an allowed root.
  *
  * - absolute path → validate against allowed roots, return as-is;
- * - relative path → resolve against `cwd` (or primary root), then validate;
+ * - relative path + cwd → resolve against cwd, then validate;
+ * - relative path, no cwd → try primary root first; if not found on disk,
+ *   scan remaining allowed roots: 1 match → return it; 2+ → disambiguation error;
+ *   0 → error with allowed roots list;
  * - alias lookup: bare tokens without separators are checked against project aliases.
  */
 export function resolveFilePath(
@@ -263,17 +267,46 @@ export function resolveFilePath(
 
   // Validate against allowed roots
   const registration = findMatchingRegistration(resolved, registrations);
-  if (!registration) {
-    return {
-      ok: false,
-      error:
-        `Súbor '${resolved}' nie je v žiadnom povolenom koreni.\n` +
-        `Povolené korene (MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS):\n` +
-        allowedRoots.map((r) => `  - ${r}`).join("\n"),
-    };
+  if (registration) {
+    // ── Fallback: when cwd is omitted and the file doesn't exist on disk in
+    //    the primary root, scan other allowed roots to find it.  This handles
+    //    the common case where a user has multiple projects registered and
+    //    passes a relative path without specifying which project they mean.
+    if (!cwd && !path.isAbsolute(filePath) && !existsSync(resolved)) {
+      const matches: string[] = [];
+      for (const root of allowedRoots) {
+        const candidate = path.resolve(root, filePath);
+        if (candidate === resolved) continue; // already checked
+        if (existsSync(candidate) && findMatchingRegistration(candidate, registrations)) {
+          matches.push(candidate);
+        }
+      }
+
+      if (matches.length === 1) {
+        return { ok: true, filePath: matches[0] };
+      }
+
+      if (matches.length > 1) {
+        return {
+          ok: false,
+          error:
+            `Relatívna cesta '${filePath}' sa našla vo viacerých koreňoch:\n` +
+            `  1. ${resolved}\n` +
+            matches.map((m, i) => `  ${i + 2}. ${m}`).join("\n") +
+            `\nPouži parameter "cwd" s jedným z nich.`,
+        };
+      }
+    }
+    return { ok: true, filePath: resolved };
   }
 
-  return { ok: true, filePath: resolved };
+  return {
+    ok: false,
+    error:
+      `Súbor '${resolved}' nie je v žiadnom povolenom koreni.\n` +
+      `Povolené korene (MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS):\n` +
+      allowedRoots.map((r) => `  - ${r}`).join("\n"),
+  };
 }
 
 // ── Project discovery (read-only, used by list_allowed_roots / resolve_cwd) ─

@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 // Mock fs.promises.readdir BEFORE importing safety (it is used at runtime
 // by findAllowedProjects). We emulate a live directory structure.
@@ -765,5 +768,113 @@ describe("resolveFilePath", () => {
     const r = resolveFilePath("src/index.ts", "C:\\Windows", regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("povolených koreňov");
+  });
+});
+
+// ── resolveFilePath: multi-root fallback (filesystem tests) ──
+
+describe("resolveFilePath — multi-root fallback", () => {
+  let tmpRoot: string;
+  let rootA: string;
+  let rootB: string;
+  let rootC: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "resolveFilePath-test-"));
+    rootA = path.join(tmpRoot, "project-a");
+    rootB = path.join(tmpRoot, "project-b");
+    rootC = path.join(tmpRoot, "project-c");
+    fs.mkdirSync(rootA, { recursive: true });
+    fs.mkdirSync(rootB, { recursive: true });
+    fs.mkdirSync(rootC, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("finds file in extra root when primary root doesn't have it", () => {
+    // Create file only in rootB
+    const subDir = path.join(rootB, "src");
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(path.join(subDir, "index.ts"), "export {};", "utf-8");
+
+    const roots = [rootA, rootB, rootC];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath("src/index.ts", undefined, regs, roots, rootA);
+    expect(r).toEqual({ ok: true, filePath: path.join(rootB, "src", "index.ts") });
+  });
+
+  it("returns disambiguation error when file exists in multiple extra roots (not primary)", () => {
+    // Create file in rootB and rootC, but NOT in rootA (primary)
+    for (const root of [rootB, rootC]) {
+      const subDir = path.join(root, "src");
+      fs.mkdirSync(subDir, { recursive: true });
+      fs.writeFileSync(path.join(subDir, "index.ts"), "export {};", "utf-8");
+    }
+
+    const roots = [rootA, rootB, rootC];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath("src/index.ts", undefined, regs, roots, rootA);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("našla vo viacerých koreňoch");
+      expect(r.error).toContain(path.join(rootB, "src", "index.ts"));
+      expect(r.error).toContain(path.join(rootC, "src", "index.ts"));
+      expect(r.error).toContain("cwd");
+    }
+  });
+
+  it("returns primary path when file not in any root (file-not-found handled by caller)", () => {
+    const roots = [rootA, rootB];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath("nonexistent/file.txt", undefined, regs, roots, rootA);
+    // resolveFilePath is a path resolver: if the path is inside an allowed root,
+    // it returns ok:true regardless of file existence. The caller (batch_apply_edits)
+    // handles file-not-found errors.
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.filePath).toBe(path.join(rootA, "nonexistent", "file.txt"));
+    }
+  });
+
+  it("does NOT trigger fallback when cwd is provided — resolves against cwd", () => {
+    // File exists in rootB but NOT in rootA
+    const subDir = path.join(rootB, "docs");
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(path.join(subDir, "README.md"), "# Hello", "utf-8");
+
+    const roots = [rootA, rootB];
+    const regs = buildRegistrations(roots);
+    // With cwd = rootA, resolves to rootA/docs/README.md (inside rootA, ok:true)
+    // Fallback does NOT trigger because cwd is provided
+    const r = resolveFilePath("docs/README.md", rootA, regs, roots, rootA);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.filePath).toBe(path.join(rootA, "docs", "README.md"));
+    }
+  });
+
+  it("falls back to unique extra root for unique file", () => {
+    // File exists only in rootC
+    fs.writeFileSync(path.join(rootC, "config.toml"), "[settings]", "utf-8");
+
+    const roots = [rootA, rootB, rootC];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath("config.toml", undefined, regs, roots, rootA);
+    expect(r).toEqual({ ok: true, filePath: path.join(rootC, "config.toml") });
+  });
+
+  it("does NOT trigger fallback for absolute paths", () => {
+    // Absolute path should go through normal validation, not fallback
+    const absPath = path.join(rootB, "src", "index.ts");
+    const subDir = path.join(rootB, "src");
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(absPath, "export {};", "utf-8");
+
+    const roots = [rootA, rootB];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath(absPath, undefined, regs, roots, rootA);
+    expect(r).toEqual({ ok: true, filePath: absPath });
   });
 });
