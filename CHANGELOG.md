@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Tool Annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) for all 17 tools per MCP spec
+- `src/__tests__/tool-integration.test.ts` — 23 new tests covering `list_tools`, `help_tool`, `read_log_slice`, `list_allowed_roots`, `resolve_cwd`
+- M8ven Trust Index badge in README.md
 - Release automation script (`scripts/release.cjs`)
 - Pre-commit hook: blocks sensitive files (.env, .key, .pem, etc.)
 - Pre-push hook: gitleaks scan + path scanner for tracked files
@@ -35,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `tsconfig.json`: exclude test fixtures from compilation
 
 ### Changed
+- `index.ts` refactored — extracted `src/commands.ts` (safetyCheck, executeCommand, executeGrep, resolveToolCwd) and `src/helpers.ts` (temp paths, audit log, line parsing); `index.ts` reduced from 1349 to 950 lines (-30%)
+- Audit logging removed from `list_tools` and `help_tool` (discovery tools are now truly read-only)
 - Upgraded `@modelcontextprotocol/sdk` from 1.29.0 to 1.30.0
 - Refactored `extract_code_block` to use shared `resolveFilePath()` (replaced inline ad-hoc path resolution with safety validation)
 

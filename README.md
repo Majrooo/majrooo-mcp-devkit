@@ -2,11 +2,12 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-269%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-294%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-blue)](#)
+[![M8ven Verified](https://m8ven.ai/badge/mcp/majrooo-majrooo-mcp-devkit-1o7w0p?variant=verified&v=643cba735869b4d4839f4a2109162cb0)](https://m8ven.ai/mcp/majrooo-majrooo-mcp-devkit-1o7w0p)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 269 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.0 · **Tests:** 294 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 

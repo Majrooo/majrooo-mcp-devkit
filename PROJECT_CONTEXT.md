@@ -13,16 +13,18 @@
 ## Architecture & Conventions
 
 * **Architecture:** MCP server over stdio (`StdioServerTransport`). Version read dynamically from `package.json`. Module split:
-  * `src/index.ts` — tool registration (`server.tool`), command execution, audit log, output normalization wiring, redirect reporting wiring.
-  * `src/safety.ts` — allowed-roots registry, dangerous-pattern blacklist, directory-escape detection, write/read-target heuristics, project discovery, `resolveFilePath()` (shared file path resolution with alias lookup + allowed roots validation), `extractRedirectTargets`, `extractDestructiveTargets`.
+  * `src/index.ts` — tool registration (`server.tool` + `registerToolInfo`), tool schema constants, transport, graceful shutdown, global error handlers.
+  * `src/commands.ts` — command execution (`executeCommand`, `executeGrep`), safety check pipeline (`safetyCheck`), cwd resolution (`resolveToolCwd`), verdict-to-message formatting.
+  * `src/helpers.ts` — shared utilities: temp log paths, line parsing, audit log writing with rotation.
+  * `src/safety.ts` — allowed-roots registry, dangerous-pattern blacklist, directory-escape detection, write/read-target heuristics, project discovery, `resolveFilePath()`.
   * `src/output.ts` — `stripAnsi` + `withUtf8Encoding` helpers.
-  * `src/format.ts` — structured failure formatting (exit code / signal / timeout, captured output, `formatCommandError`).
+  * `src/format.ts` — structured failure formatting (`composeFailureMessage`, `extractExecFailure`, `formatCommandError`, `textResult`, `jsonResult`).
   * `src/redirect.ts` — redirect-target reporting: reads back files written via `>` / `>>` / `2>` and shows their tail in the response.
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
-* **Testing:** Vitest — `npm test` (269 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Testing:** Vitest — `npm test` (294 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
-  * `src/` — TypeScript sources (`index.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
+  * `src/` — TypeScript sources (`index.ts`, `commands.ts`, `helpers.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
   * `README.md`, `PROJECT_CONTEXT.md`, `package.json`, `tsconfig.json`
 
@@ -69,7 +71,7 @@
 |---|---|
 | `npm install` | Install dependencies |
 | `npm run build` | Compile TypeScript (`tsc` → `build/`) |
-| `npm test` | Run Vitest unit tests (269 tests, `src/__tests__` only) |
+| `npm test` | Run Vitest unit tests (294 tests, `src/__tests__` only) |
 | `npm run test:watch` | Vitest watch mode (`src/__tests__`) |
 | `node build/index.js` | Run the MCP server (STDIO) |
 | `npm ls --depth=0` | List installed dependencies |

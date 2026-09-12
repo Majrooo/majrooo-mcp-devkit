@@ -1,4 +1,4 @@
-/*
+﻿/*
  * majrooo-mcp-devkit
  * Copyright (C) 2026 majrooo <https://github.com/majrooo>
  *
@@ -19,32 +19,23 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { appendFile, writeFile, readFile, stat, rename } from "fs/promises";
+import { writeFile, readFile, stat } from "fs/promises";
 import { readFileSync } from "fs";
 import path from "path";
 import os from "os";
 import {
   ALLOWED_ROOTS,
   BLOCK_CROSS_ROOT_READS,
-  findEscapeReason,
-  isDangerous,
-  resolveCwdRequested,
-  findOutOfRootWriteTargets,
-  findSuspiciousCrossRootReads,
   findAllowedProjects,
-  findAliasByName,
   findAliasByPath,
+  findAliasByName,
+  resolveCwdRequested,
   resolveFilePath,
   PROJECT_ALIASES,
-  extractRedirectTargets,
-  extractDestructiveTargets,
   type Registration,
 } from "./safety.js";
-import { stripAnsi, withUtf8Encoding } from "./output.js";
-import { buildRedirectNote } from "./redirect.js";
-import { composeFailureMessage, extractExecFailure, formatCommandError, textResult, jsonResult } from "./format.js";
+import { stripAnsi } from "./output.js";
+import { textResult, jsonResult } from "./format.js";
 import { universalFindReferences, extractCodeBlock, type FileReferences } from "./symbols.js";
 import { splitFileByDeclarations } from "./split.js";
 import { batchApplyEdits } from "./batch.js";
@@ -52,8 +43,9 @@ import { generateModuleSkeleton } from "./skeleton.js";
 import { verifyRefactorSafety } from "./verify.js";
 import { reportToolFeedback, readFeedbackEntries, closeFeedback } from "./feedback.js";
 import { registerToolInfo, listToolInfos, getToolInfo } from "./tool-registry.js";
-
-const execAsync = promisify(exec);
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { writeAuditLog, parseLines } from "./helpers.js";
+import { executeCommand, executeGrep, resolveToolCwd } from "./commands.js";
 
 function getPackageVersion(): string {
   try {
@@ -64,359 +56,10 @@ function getPackageVersion(): string {
   }
 }
 
-function getExecOptions(cwd: string, timeoutMs: number) {
-  return {
-    maxBuffer: 1024 * 1024 * 50, // 50 MB
-    timeout: timeoutMs,
-    cwd,
-    // Discourage ANSI color output (vitest/jest/chalk) before we even
-    // receive it. stripAnsi stays as a fallback for tools that ignore
-    // these environment variables.
-    env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
-  };
-}
-
 const server = new McpServer({
   name: "majrooo-mcp-devkit",
   version: getPackageVersion(),
 });
-
-// ── Helpers ────────────────────────────────────────────────
-
-function getTempLogPath(): string {
-  const timestamp = Date.now();
-  return path.join(os.tmpdir(), `cmd-output-${timestamp}.log`);
-}
-
-function parseLines(text: string): string[] {
-  return text.split(/\r?\n/);
-}
-
-function getAuditLogPath(): string {
-  return path.join(os.tmpdir(), "mcp-command-audit.log");
-}
-
-/** Rotate the audit log when it exceeds this size (5 MB). */
-const AUDIT_LOG_MAX_BYTES = 5 * 1024 * 1024;
-
-async function writeAuditLog(entry: Record<string, unknown>): Promise<void> {
-  try {
-    const auditPath = getAuditLogPath();
-    // Best-effort rotation: if the log already exceeds the cap, move it aside
-    // (overwriting the previous `.old`) and start a fresh file.
-    try {
-      const { size } = await stat(auditPath);
-      if (size > AUDIT_LOG_MAX_BYTES) {
-        await rename(auditPath, `${auditPath}.old`);
-      }
-    } catch {
-      // File does not exist yet (or stat/rename raced) — that's fine.
-    }
-    const line = JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + "\n";
-    await appendFile(auditPath, line, "utf-8");
-  } catch (err) {
-    console.error("[audit-log] Failed to write audit entry:", err);
-  }
-}
-
-type ExecResult = {
-  content: { type: "text"; text: string }[];
-  isError?: boolean;
-};
-
-type SafetyVerdict =
-  | { kind: "ok" }
-  | { kind: "directory_escape"; reason: string }
-  | { kind: "dangerous"; match: string }
-  | { kind: "outside_root_write"; targets: { target: string; reason: string }[] }
-  | { kind: "cross_root_read"; targets: string[] };
-
-/**
- * Run all safety checks for a command against the active project root.
- * `cwd` is already validated by the caller (resolveToolCwd).
- * Returns a structured verdict so the audit log does not have to guess
- * the reason from a free-text string.
- */
-function safetyCheck(command: string, cwd: string, registration: Registration): SafetyVerdict {
-  const escape = findEscapeReason(command);
-  if (escape) {
-    return { kind: "directory_escape", reason: escape };
-  }
-
-  const dangerous = isDangerous(command);
-  if (dangerous) {
-    return { kind: "dangerous", match: dangerous };
-  }
-
-  const writes = findOutOfRootWriteTargets(command, cwd, registration);
-  if (writes.length > 0) {
-    return { kind: "outside_root_write", targets: writes };
-  }
-
-  if (BLOCK_CROSS_ROOT_READS) {
-    const reads = findSuspiciousCrossRootReads(command, cwd, registration);
-    if (reads.length > 0) {
-      return { kind: "cross_root_read", targets: reads };
-    }
-  }
-
-  return { kind: "ok" };
-}
-
-/**
- * Destructive commands (rmdir, del, erase, Remove-Item) whose target does not
- * exist in the active `cwd` almost always mean a missing/incorrect `cwd`
- * (e.g. `rmdir /s /q awesome-tauri` executed in the primary project). Return
- * the missing targets so we can fail with a "set the cwd parameter" message
- * instead of a raw `The system cannot find the file specified`.
- */
-async function findMissingDestructiveTargets(command: string, cwd: string): Promise<string[]> {
-  const missing: string[] = [];
-  for (const raw of extractDestructiveTargets(command)) {
-    const cleaned = raw.replace(/^["']|["']$/g, "");
-    // Skip shell variables ($env:..., %VAR%) and wildcards.
-    if (cleaned.includes("$") || cleaned.includes("%")) continue;
-    if (cleaned.includes("*") || cleaned.includes("?")) continue;
-    const resolved = path.resolve(cwd, cleaned);
-    try {
-      await stat(resolved);
-    } catch {
-      missing.push(`${cleaned} (${resolved})`);
-    }
-  }
-  return missing;
-}
-
-function buildMissingTargetMessage(missingTargets: string[], cwd: string): string {
-  const rootList = ALLOWED_ROOTS.map((r) => `  - ${r}`).join("\n");
-  return [
-    `Príkaz odmietnutý — cieľ destruktívneho príkazu neexistuje v aktívnom projektovom koreni.`,
-    `Aktívny koreň (cwd): ${cwd}`,
-    ``,
-    `Chýbajúce ciele:`,
-    ...missingTargets.map((t) => `  - ${t}`),
-    ``,
-    `Pravdepodobne chýba/nesedí parameter "cwd" — cieľ sa možno nachádza v inom projekte.`,
-    `Prepni projekt cez parameter "cwd" (prípadne friendly name) alebo si pozri`,
-    `povolené korene cez tool "list_allowed_roots":`,
-    rootList,
-  ].join("\n");
-}
-
-function verdictToMessage(verdict: Exclude<SafetyVerdict, { kind: "ok" }>, activeRoot: string): string {
-  const rootList = ALLOWED_ROOTS.map((r) => `  - ${r}`).join("\n");
-
-  switch (verdict.kind) {
-    case "directory_escape":
-      return [
-        `Príkaz odmietnutý — pokus o opustenie aktívneho projektového koreňa.`,
-        `Zistený vzor: ${verdict.reason}`,
-        ``,
-        `Aktívny koreň (cwd): ${activeRoot}`,
-        `Povolené korene (MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS):`,
-        rootList,
-        ``,
-        `Prepnúť projekt = použiť parameter "cwd". Príkazy typu "cd ..", "cd C:\\...", "cd /d D:\\..." sú zakázané.`,
-      ].join("\n");
-
-    case "dangerous":
-      return [
-        `⚠️  Príkaz bol označený ako potenciálne nebezpečný!`,
-        `   Zhoda so vzorom: ${verdict.match}`,
-        ``,
-        `Ak si si istý, použij tool "run_destructive_command" s parametrom "confirm: true".`,
-      ].join("\n");
-
-    case "outside_root_write":
-      return [
-        `Príkaz odmietnutý — zápis mimo aktívneho projektového koreňa.`,
-        `Aktívny koreň (cwd): ${activeRoot}`,
-        ``,
-        `Zachytené ciele zápisu:`,
-        ...verdict.targets.map((t) => `  - ${t.target} (${t.reason})`),
-        ``,
-        `Zápis je povolený len DO aktívneho projektu. Ak naozaj potrebuješ zapísať do iného projektu,`,
-        `vyber ho cez parameter "cwd" (musí byť v MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS).`,
-        ``,
-        `Poznámka: ide o best-effort kontrolu (presmerovania ">", copy/move/mkdir/tee/curl -o/...),`,
-        `nie o úplnú izoláciu súborového systému.`,
-      ].join("\n");
-
-    case "cross_root_read":
-      return [
-        `Príkaz odmietnutý — čítanie mimo aktívneho projektového koreňa (MCP_BLOCK_CROSS_ROOT_READS=1).`,
-        `Aktívny koreň (cwd): ${activeRoot}`,
-        ``,
-        `Zachytené ciele čítania:`,
-        ...verdict.targets.map((t) => `  - ${t}`),
-        ``,
-        `Poznámka: ide o best-effort heuristiku, nie o úplnú izoláciu súborového systému.`,
-      ].join("\n");
-  }
-}
-
-async function executeCommand(
-  command: string,
-  cwd: string,
-  registration: Registration,
-  maxLines: number,
-  confirm: boolean,
-  timeoutMs: number,
-): Promise<ExecResult> {
-  // 1. Safety checks
-  const verdict = safetyCheck(command, cwd, registration);
-
-  if (verdict.kind !== "ok") {
-    if (!confirm) {
-      await writeAuditLog({
-        command,
-        cwd,
-        status: "rejected",
-        reason: verdict.kind,
-        detail: verdict.kind === "outside_root_write"
-          ? verdict.targets.map((t) => t.target)
-          : verdict.kind === "cross_root_read"
-            ? verdict.targets
-            : undefined,
-      });
-      return {
-        content: [{ type: "text" as const, text: verdictToMessage(verdict, cwd) }],
-        isError: true,
-      };
-    }
-    // confirm === true — log it prominently
-    console.error(`[DESTRUCTIVE] cwd=${cwd} ${command} (confirmed)`);
-  }
-
-  // 2. Execute
-  try {
-    const missingTargets = await findMissingDestructiveTargets(command, cwd);
-    if (missingTargets.length > 0) {
-      await writeAuditLog({ command, cwd, status: "rejected", reason: "missing_destructive_target", confirm });
-      return {
-        content: [{ type: "text" as const, text: buildMissingTargetMessage(missingTargets, cwd) }],
-        isError: true,
-      };
-    }
-
-    const safeMax = Math.max(1, maxLines);
-    // On Windows, force UTF-8 output — the legacy OEM codepage (e.g. CP852)
-    // would otherwise decode into U+FFFD `` replacement characters.
-    const { stdout, stderr } = await execAsync(withUtf8Encoding(command), getExecOptions(cwd, timeoutMs));
-
-    const rawOutput = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
-    const fullOutput = stripAnsi(rawOutput);
-    const lines = parseLines(fullOutput);
-    const totalLines = lines.length;
-    let content: string;
-
-    if (totalLines <= safeMax) {
-      content = fullOutput;
-    } else {
-      const logPath = getTempLogPath();
-      await writeFile(logPath, fullOutput, "utf-8");
-
-      const half = Math.floor(safeMax / 2);
-      const firstPart = lines.slice(0, half).join("\n");
-      const lastPart = lines.slice(totalLines - half).join("\n");
-      content =
-        `[Výstup orezaný — celkovo ${totalLines} riadkov]\n` +
-        `[Plný výstup uložený v: ${logPath}]\n\n` +
-        `${firstPart}\n...\n${lastPart}`;
-    }
-
-    // When the caller redirected the output into a file (`npm test > test.log 2>&1`),
-    // stdout/stderr are empty — report where the output went and show the file.
-    const redirectTargets = extractRedirectTargets(command);
-    const redirectNote = await buildRedirectNote(redirectTargets, cwd, maxLines);
-    if (redirectNote) {
-      content = content.trim()
-        ? `${content}\n\n${redirectNote}`
-        : redirectNote;
-    }
-
-    await writeAuditLog({ command, cwd, status: "ok", confirm });
-    return { content: [{ type: "text" as const, text: content }] };
-  } catch (error: unknown) {
-    const rawMessage = error instanceof Error ? error.message : String(error);
-    const details = extractExecFailure(error);
-    const redirectTargets = extractRedirectTargets(command);
-    const redirectNote = await buildRedirectNote(redirectTargets, cwd, maxLines);
-
-    const message = composeFailureMessage({
-      rawError: rawMessage,
-      command,
-      cwd,
-      details,
-      maxLines,
-      redirectNote,
-    });
-
-    await writeAuditLog({ command, cwd, status: "error", error: rawMessage, confirm });
-    return {
-      content: [{ type: "text" as const, text: `Chyba: ${message}` }],
-      isError: true,
-    };
-  }
-}
-
-async function executeGrep(
-  command: string,
-  pattern: string,
-  cwd: string,
-  registration: Registration,
-  timeoutMs: number,
-): Promise<ExecResult> {
-  // Safety check first (shared logic)
-  const verdict = safetyCheck(command, cwd, registration);
-  if (verdict.kind !== "ok") {
-    await writeAuditLog({ command, pattern, cwd, status: "rejected", reason: verdict.kind });
-    return {
-      content: [{ type: "text" as const, text: verdictToMessage(verdict, cwd) }],
-      isError: true,
-    };
-  }
-
-  try {
-    let regex: RegExp;
-    try {
-      regex = new RegExp(pattern, "i");
-    } catch {
-      return {
-        content: [{ type: "text" as const, text: `Chyba: neplatný regulárny výraz — ${pattern}` }],
-        isError: true,
-      };
-    }
-
-    const { stdout, stderr } = await execAsync(withUtf8Encoding(command), getExecOptions(cwd, timeoutMs));
-
-    const rawOutput = stdout + (stderr ? `\nSTDERR:\n${stderr}` : "");
-    const fullOutput = stripAnsi(rawOutput);
-    const lines = parseLines(fullOutput);
-    const matches = lines.filter((line) => regex.test(line));
-
-    if (matches.length === 0) {
-      return {
-        content: [{ type: "text" as const, text: "(žiadna zhoda)" }],
-      };
-    }
-
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Nájdených ${matches.length} zhôd:\n\n${matches.join("\n")}`,
-        },
-      ],
-    };
-  } catch (error: unknown) {
-    const rawMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text" as const, text: `Chyba: ${formatCommandError(rawMessage)}` }],
-      isError: true,
-    };
-  }
-}
 
 const CWD_GUIDANCE =
   "If the task targets a project other than the primary one (MCP_PROJECT_ROOT), always pass the \"cwd\" parameter. " +
@@ -438,47 +81,6 @@ const timeoutMsSchema = z
   .default(60_000)
   .describe("Timeout in milliseconds (1,000 – 600,000, default 60,000). You can extend it for longer tests/builds, e.g. 180,000 for jest.");
 
-async function resolveToolCwd(
-  cwd: string | undefined,
-): Promise<{ ok: true; cwd: string; registration: Registration } | { ok: false; error: string }> {
-  // A bare token (no path separators) that exactly matches a friendly project
-  // name is translated to its real path.
-  const bare = cwd?.trim() ?? "";
-  if (bare && !bare.includes("\\") && !bare.includes("/")) {
-    const alias = findAliasByName(bare);
-    if (alias) cwd = alias.path;
-  }
-
-  const resolved = resolveCwdRequested(cwd);
-  if (!resolved.ok) {
-    return { ok: false, error: resolved.error };
-  }
-
-  // A non-existent cwd makes child_process fail with `spawn cmd.exe ENOENT`
-  // (it cannot even spawn cmd). Fail early with a clear message instead.
-  try {
-    const st = await stat(resolved.cwd);
-    if (!st.isDirectory()) {
-      return {
-        ok: false,
-        error:
-          `'${resolved.cwd}' nie je adresár.\n` +
-          `cwd musí ukazovať na existujúci adresár v rámci povolených koreňov.`,
-      };
-    }
-  } catch {
-    return {
-      ok: false,
-      error:
-        `Adresár '${resolved.cwd}' neexistuje.\n` +
-        `Relatívne cwd sa rieši voči primárnemu projektu (MCP_PROJECT_ROOT). ` +
-        `Pre prácu v inom projekte zadaj absolútnu cestu alebo friendly name ` +
-        `(zoznam projektov: list_allowed_roots).`,
-    };
-  }
-
-  return { ok: true, cwd: resolved.cwd, registration: resolved.registration };
-}
 
 // ── Tool: run_safe_command ─────────────────────────────────
 
@@ -500,6 +102,7 @@ server.tool(
     maxLines: z.number().default(200).describe("Maximum number of output lines (default: 200)"),
     timeoutMs: timeoutMsSchema,
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   async ({ command, cwd, maxLines, timeoutMs }) => {
     const resolved = await resolveToolCwd(cwd);
     if (!resolved.ok) {
@@ -531,6 +134,7 @@ server.tool(
     maxLines: z.number().default(200).describe("Maximum number of output lines (default: 200)"),
     timeoutMs: timeoutMsSchema,
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   async ({ command, cwd, maxLines, confirm, timeoutMs }) => {
     const resolved = await resolveToolCwd(cwd);
     if (!resolved.ok) {
@@ -556,6 +160,7 @@ server.tool(
     startLine: z.number().default(0).describe("Starting line (0-based, default: 0)"),
     lineCount: z.number().default(100).describe("Number of lines to read (default: 100)"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ logPath, startLine, lineCount }) => {
     try {
       // Defensive: old logs written before the normalization may still
@@ -612,6 +217,7 @@ server.tool(
     cwd: cwdSchema.optional(),
     timeoutMs: timeoutMsSchema,
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   async ({ command, pattern, cwd, timeoutMs }) => {
     const resolved = await resolveToolCwd(cwd);
     if (!resolved.ok) {
@@ -635,6 +241,7 @@ server.tool(
   "in another project. It runs no commands — it only reads the configuration and lists directories. " +
   "A project with a friendly name is shown as { path, name } and you can pass its \"name\" as \"cwd\".",
   {},
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async () => {
     const projects = await findAllowedProjects();
     return {
@@ -669,6 +276,7 @@ server.tool(
   {
     path: z.string().describe("Path or friendly project name to verify"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ path: requestedPath }) => {
     // Friendly name → real path (bare token matching MCP_PROJECT_NAMES).
     let target = requestedPath;
@@ -747,6 +355,7 @@ server.tool(
     contextLines: z.number().optional().describe("Lines of context around each match (default: 1)"),
     language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Optional language-aware mode for role detection"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ symbol, cwd, fileExtensions, excludePatterns, contextLines, language }) => {
     // Resolve cwd — when not specified, search ALL allowed roots
     let resolvedCwd = cwd;
@@ -823,6 +432,7 @@ server.tool(
     contextLines: z.number().optional().describe("Extra lines before/after the block (default: 0)"),
     cwd: z.string().optional().describe("Working directory for resolving relative file paths (default: primary project root)"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ file, symbol, contextLines, cwd }) => {
     // Resolve relative file paths against cwd or primary root
     const fileResult = resolveFilePath(file, cwd);
@@ -873,6 +483,7 @@ server.tool(
     overwrite: z.boolean().optional().describe("Allow overwriting existing target files (default: false)"),
     cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   async (params) => {
     const { grouping, language, generateIndex, dryRun, overwrite, cwd } = params;
     // Resolve relative file paths against cwd or primary root
@@ -923,6 +534,7 @@ server.tool(
     dryRun: z.boolean().optional().describe("Preview all changes without writing (default: true)"),
     cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   async ({ edits, dryRun, cwd }) => {
     // Resolve relative file paths against cwd or primary root
     const resolvedEdits = [];
@@ -955,6 +567,7 @@ server.tool(
     overwrite: z.boolean().optional().describe("Allow overwriting existing file (default: false)"),
     cwd: z.string().optional().describe("Working dir for resolving relative file paths (default: primary project root)"),
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   async (params) => {
     const { symbols, language, dryRun, overwrite, cwd } = params;
     // Resolve relative file paths against cwd or primary root
@@ -995,6 +608,7 @@ server.tool(
     after: z.string().describe("New code text"),
     language: z.enum(["rust", "typescript", "python", "cpp"]).optional().describe("Language (auto-detected from content)"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ before, after, language }) => {
     const result = verifyRefactorSafety(before, after, { language });
     await writeAuditLog({ tool: "verify_refactor_safety", safe: result.safe, checksCount: result.checks.length });
@@ -1025,6 +639,7 @@ server.tool(
     expected: z.string().optional().describe("What you expected to happen"),
     suggestion: z.string().optional().describe("Your suggestion for a fix or improvement"),
   },
+  { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async (input) => {
     const root = ALLOWED_ROOTS[0] ?? process.cwd();
     const result = reportToolFeedback(root, "majrooo-mcp-devkit", "majrooo-mcp-devkit", getPackageVersion(), input);
@@ -1044,6 +659,7 @@ server.tool(
     tool: z.string().optional().describe("Filter by tool name"),
     status: z.enum(["open", "closed"]).optional().describe("Filter by status"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async (filters) => {
     const root = ALLOWED_ROOTS[0] ?? process.cwd();
     const entries = readFeedbackEntries(root, filters);
@@ -1064,6 +680,7 @@ server.tool(
     id: z.string().describe("The feedback entry ID to close (from list_feedback output)"),
     resolution: z.string().optional().describe("Resolution note explaining how the issue was addressed"),
   },
+  { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   async ({ id, resolution }) => {
     const root = ALLOWED_ROOTS[0] ?? process.cwd();
     const result = closeFeedback(root, id, resolution);
@@ -1221,9 +838,9 @@ server.tool(
   {
     category: z.enum(["command", "refactoring", "feedback"]).optional().describe("Filter by category"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ category }) => {
     const tools = listToolInfos(category);
-    await writeAuditLog({ tool: "list_tools", category: category ?? "all", resultCount: tools.length });
 
     const groups: Record<string, typeof tools> = {};
     for (const t of tools) {
@@ -1272,6 +889,7 @@ server.tool(
   {
     tool: z.string().describe("Tool name to get help for"),
   },
+  { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ tool: toolName }) => {
     const info = getToolInfo(toolName);
     if (!info) {
@@ -1280,7 +898,6 @@ server.tool(
         isError: true,
       };
     }
-    await writeAuditLog({ tool: "help_tool", helpFor: toolName });
 
     const lines: string[] = [];
     lines.push(`# ${info.name}\n`);
