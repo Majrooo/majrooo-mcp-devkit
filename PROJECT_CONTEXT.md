@@ -22,7 +22,8 @@
   * `src/redirect.ts` — redirect-target reporting: reads back files written via `>` / `>>` / `2>` and shows their tail in the response.
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
-* **Testing:** Vitest — `npm test` (294 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Language support:** Refactoring tools (`universal_find_references`, `split_file_by_declarations`, `generate_module_skeleton`, `verify_refactor_safety`) support Rust, TypeScript, Python, and C++ (`generate_module_skeleton` supports Rust, TypeScript, Python only). Rust is fully tested in production; others are structurally supported but untested. `extract_code_block` and `batch_apply_edits` are language-agnostic.
+* **Testing:** Vitest — `npm test` (300 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
   * `src/` — TypeScript sources (`index.ts`, `commands.ts`, `helpers.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
@@ -71,7 +72,7 @@
 |---|---|
 | `npm install` | Install dependencies |
 | `npm run build` | Compile TypeScript (`tsc` → `build/`) |
-| `npm test` | Run Vitest unit tests (294 tests, `src/__tests__` only) |
+| `npm test` | Run Vitest unit tests (300 tests, `src/__tests__` only) |
 | `npm run test:watch` | Vitest watch mode (`src/__tests__`) |
 | `node build/index.js` | Run the MCP server (STDIO) |
 | `npm ls --depth=0` | List installed dependencies |

@@ -2,12 +2,12 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-294%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-300%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-blue)](#)
 [![M8ven Verified](https://m8ven.ai/badge/mcp/majrooo-majrooo-mcp-devkit-1o7w0p?variant=verified&v=643cba735869b4d4839f4a2109162cb0)](https://m8ven.ai/mcp/majrooo-majrooo-mcp-devkit-1o7w0p)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.0 · **Tests:** 294 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.1 · **Tests:** 300 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -95,6 +95,7 @@ Read the full text of a function, struct, class, or method from a file. Returns 
 | `file` | string | — | Source file path (must resolve inside allowed root) |
 | `symbol` | string | — | Symbol name to extract |
 | `contextLines` | number | 0 | Extra lines before/after the block |
+| `cwd` | string | primary root | Working dir for resolving relative file paths |
 
 ### `split_file_by_declarations`
 
@@ -113,7 +114,7 @@ Split a large file into multiple smaller files based on top-level declarations. 
 
 ### `batch_apply_edits`
 
-Apply multiple file edits atomically with rollback on failure. Validates all edits first — if any `search` string is not found or matches multiple times (without `replaceAll`), NO files are modified.
+Apply multiple file edits atomically with rollback on failure. Validates all edits first — if any `search` string is not found or matches multiple times (without `replaceAll`), NO files are modified. Relative paths without `cwd` are resolved against the primary root; if the file doesn't exist there, all other registered roots are searched automatically (unique match → use it; multiple matches → error with instructions to specify `cwd`).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -194,6 +195,21 @@ Get detailed help for a specific MCP tool — parameters, types, defaults, and d
 |---|---|---|---|
 | `tool` | string | — | Tool name to get help for |
 
+## Supported Languages
+
+The refactoring tools support four languages for declaration parsing, symbol extraction, and role detection:
+
+| Language | Status | Role detection | Split | Skeleton |
+|---|---|---|---|---|
+| **Rust** | ✅ Fully tested | ✅ | ✅ | ✅ |
+| TypeScript | Experimental | ✅ | ✅ | ✅ |
+| Python | Experimental | ✅ | ✅ | ✅ |
+| C++ | Experimental | ✅ | ✅ | ❌ |
+
+Tools without a `language` parameter (`batch_apply_edits`, `extract_code_block`) are **language-agnostic** — they operate on plain text and work with any language.
+
+> **Note:** Rust has been tested in production refactoring scenarios. Other languages are structurally supported but have not been tested against real-world codebases yet.
+
 ## Configuration
 
 The server supports **one instance, many projects**. Projects are selected per command via the `cwd` parameter; the active project also acts as the "lockbox" for write/read checks.
@@ -269,6 +285,8 @@ Never run test suites (`jest`/`npm test`), typecheck or builds through the Cline
 2. If you need to confirm a specific path, call `resolve_cwd` with your workspace folder — it returns the exact `cwd` to use and the matched root.
 3. If the task targets a project other than the primary one, pass the resolved path as `cwd` on every command (`run_safe_command`, `run_destructive_command`, `run_command_grep`).
 4. Otherwise, omit `cwd` — commands run in the primary root.
+
+> **Relative paths:** File-based refactoring tools (`batch_apply_edits`, `extract_code_block`, `split_file_by_declarations`, `generate_module_skeleton`) resolve relative paths against the primary root when `cwd` is omitted. If the file doesn't exist in the primary root, all other registered roots are searched automatically — a unique match is used directly, while multiple matches produce an error with instructions to specify `cwd`. When `cwd` is provided, the path always resolves against that root.
 
 ## Safety Mechanisms
 
