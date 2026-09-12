@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.1.1] - 2026-09-12
+
 ### Added
+- Supported Languages section in README.md (Rust, TypeScript, Python, C++)
+- Multi-root fallback for `resolveFilePath()`: relative paths without `cwd` now scan all allowed roots — unique match auto-resolves, multiple matches produce disambiguation error (6 new tests)
+- 6 new tests for `resolveFilePath` multi-root fallback (total 300, up from 294)
 - Tool Annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) for all 17 tools per MCP spec
 - `src/__tests__/tool-integration.test.ts` — 23 new tests covering `list_tools`, `help_tool`, `read_log_slice`, `list_allowed_roots`, `resolve_cwd`
 - M8ven Trust Index badge in README.md
@@ -38,12 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `tsconfig.json`: exclude test fixtures from compilation
 
 ### Changed
+- `resolveFilePath()` now checks file existence on disk before falling back to scan other allowed roots — prevents silent misresolution when multiple projects share common filenames (e.g. `index.ts`, `README.md`)
+- README.md: added `cwd` parameter to `extract_code_block` documentation, updated test badge to 300, described multi-root path resolution in `batch_apply_edits` and Typical workflow section
+- PROJECT_CONTEXT.md: added language support entry, updated test count to 300
 - `index.ts` refactored — extracted `src/commands.ts` (safetyCheck, executeCommand, executeGrep, resolveToolCwd) and `src/helpers.ts` (temp paths, audit log, line parsing); `index.ts` reduced from 1349 to 950 lines (-30%)
 - Audit logging removed from `list_tools` and `help_tool` (discovery tools are now truly read-only)
 - Upgraded `@modelcontextprotocol/sdk` from 1.29.0 to 1.30.0
 - Refactored `extract_code_block` to use shared `resolveFilePath()` (replaced inline ad-hoc path resolution with safety validation)
 
 ### Fixed
+- README.md: test count badge updated from 294 to 300
+- Closed feedback: `batch_apply_edits` relative paths now resolve across allowed roots
+- Closed feedback: `list_tools` raw JSON envelope — identified as Cline client display issue, not server bug
 - `batch_apply_edits`: added `cwd` parameter + `resolveFilePath()` — now resolves relative paths (was returning "Cannot read file" for files in newly created subdirectories)
 - `split_file_by_declarations` & `generate_module_skeleton`: multi-line `use`/`import` blocks now collected completely (was truncated at first line, breaking generated imports)
 - `extract_code_block` & `split_file_by_declarations`: removed `#` → line comment handling from tokenizer — Rust `#[derive(...)]`/`#[allow(...)]` attributes no longer cause missing closing braces in extracted functions

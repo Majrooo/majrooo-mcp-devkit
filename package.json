@@ -1,6 +1,6 @@
 {
   "name": "majrooo-mcp-devkit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP devkit — safe command execution, code analysis and refactoring tools for AI assistants",
   "repository": "https://github.com/Majrooo/majrooo-mcp-devkit",
   "main": "build/index.js",
