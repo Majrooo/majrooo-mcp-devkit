@@ -877,4 +877,35 @@ describe("resolveFilePath — multi-root fallback", () => {
     const r = resolveFilePath(absPath, undefined, regs, roots, rootA);
     expect(r).toEqual({ ok: true, filePath: absPath });
   });
+
+  it("resolves relative path when project is registered via alias only (not MCP_EXTRA_ROOTS)", () => {
+    // Simulates: MCP_PROJECT_ROOT not set (devkit is primary),
+    // project only in MCP_PROJECT_NAMES → alias path added to ALLOWED_ROOTS.
+    // The fix adds alias paths to ALLOWED_ROOTS so resolveFilePath can find files.
+    const projectDir = path.join(rootB, "engine_bevy", "src", "config");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, "types.rs"), "pub struct Config {}", "utf-8");
+
+    // rootB is the "alias" root — simulates MCP_PROJECT_NAMES path
+    const roots = [rootA, rootB];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath("engine_bevy/src/config/types.rs", undefined, regs, roots, rootA);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.filePath).toBe(path.join(rootB, "engine_bevy", "src", "config", "types.rs"));
+    }
+  });
+
+  it("resolves absolute path when project is registered via alias only", () => {
+    // Absolute path to a file in an extra root — should work without fallback
+    const absPath = path.join(rootB, "engine_bevy", "src", "config", "types.rs");
+    const dir = path.dirname(absPath);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(absPath, "pub struct Config {}", "utf-8");
+
+    const roots = [rootA, rootB];
+    const regs = buildRegistrations(roots);
+    const r = resolveFilePath(absPath, undefined, regs, roots, rootA);
+    expect(r).toEqual({ ok: true, filePath: absPath });
+  });
 });

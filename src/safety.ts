@@ -48,7 +48,8 @@ function splitEnvList(value: string | undefined): string[] {
  * Resolution order:
  *  1. `MCP_PROJECT_ROOT` — primary root (default `cwd` when omitted);
  *  2. `MCP_EXTRA_ROOTS` — additional roots, semicolon separated;
- *  3. If `MCP_PROJECT_ROOT` is unset, the server's own directory is used.
+ *  3. `MCP_PROJECT_NAMES` — alias paths are also included as allowed roots;
+ *  4. If `MCP_PROJECT_ROOT` is unset, the server's own directory is used.
  *
  * NOTE: the fallback uses the module location (`import.meta.url`), NOT
  * `process.cwd()` — when hosted by VS Code, `process.cwd()` points to the
@@ -57,7 +58,13 @@ function splitEnvList(value: string | undefined): string[] {
 export const ALLOWED_ROOTS: string[] = (() => {
   const primary = process.env.MCP_PROJECT_ROOT?.trim() ?? "";
   const extra = splitEnvList(process.env.MCP_EXTRA_ROOTS);
-  const values = primary ? [primary, ...extra] : [getModuleRoot(), ...extra];
+  // Include paths from MCP_PROJECT_NAMES so that projects configured only
+  // via friendly names are also recognised as allowed roots. This fixes
+  // file-based tools (batch_apply_edits, extract_code_block, …) failing
+  // to resolve relative paths when the target project is registered only
+  // through MCP_PROJECT_NAMES and not via MCP_EXTRA_ROOTS.
+  const aliasPaths = parseProjectAliases(process.env.MCP_PROJECT_NAMES).map((a) => a.path);
+  const values = primary ? [primary, ...extra, ...aliasPaths] : [getModuleRoot(), ...extra, ...aliasPaths];
   return [...new Set(values.map((p) => path.resolve(p)))];
 })();
 
@@ -214,7 +221,7 @@ export function resolveCwdRequested(
       ok: false,
       error:
         `Adresár '${requested}' nie je v zozname povolených koreňov.\n` +
-        `Povolené korene (MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS):\n` +
+        `Povolené korene (MCP_PROJECT_ROOT / MCP_EXTRA_ROOTS / MCP_PROJECT_NAMES):\n` +
         allowedRoots.map((r) => `  - ${r}`).join("\n") +
         `\nAk chceš spustiť príkaz v inom projekte, zadaj parameter "cwd" s povoleným koreňom.`,
     };

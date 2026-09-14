@@ -55,7 +55,7 @@
 |---|---|
 | `MCP_PROJECT_ROOT` | Primary project root (default `cwd`; fallback = server's own dir). |
 | `MCP_EXTRA_ROOTS` | Additional roots, semicolon-separated (plain paths and/or globs). |
-| `MCP_PROJECT_NAMES` | Friendly names `path=name;...` usable as `cwd`. |
+| `MCP_PROJECT_NAMES` | Friendly names `path=name;...` usable as `cwd`. Paths are also included in `ALLOWED_ROOTS`. |
 | `MCP_BLOCK_CROSS_ROOT_READS` | `1`/`true` → opt-in blocking of obvious cross-root reads. |
 
 ## Key User Workflows
@@ -72,7 +72,7 @@
 |---|---|
 | `npm install` | Install dependencies |
 | `npm run build` | Compile TypeScript (`tsc` → `build/`) |
-| `npm test` | Run Vitest unit tests (306 tests, `src/__tests__` only) |
+| `npm test` | Run Vitest unit tests (308 tests, `src/__tests__` only) |
 | `npm run test:watch` | Vitest watch mode (`src/__tests__`) |
 | `node build/index.js` | Run the MCP server (STDIO) |
 | `npm ls --depth=0` | List installed dependencies |

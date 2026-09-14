@@ -218,7 +218,7 @@ The server supports **one instance, many projects**. Projects are selected per c
 |---|---|
 | `MCP_PROJECT_ROOT` | Primary project root (default `cwd` when omitted). If unset, the server's own directory is used (derived from the module location, **not** `process.cwd()`). |
 | `MCP_EXTRA_ROOTS` | Additional roots, semicolon separated. |
-| `MCP_PROJECT_NAMES` | Friendly names for projects, semicolon separated `path=name` pairs (see below). |
+| `MCP_PROJECT_NAMES` | Friendly names for projects, semicolon separated `path=name` pairs (see below). Alias paths are also included in the allowed roots, so projects registered only via this variable can be used with file-based tools. |
 | `MCP_BLOCK_CROSS_ROOT_READS` | `1` or `true` → opt-in best-effort blocking of obvious reads outside the active root. |
 
 Entry forms supported in both variables:
@@ -292,7 +292,7 @@ Never run test suites (`jest`/`npm test`), typecheck or builds through the Cline
 
 | Layer | Description |
 |---|---|
-| **Registered roots** | `MCP_PROJECT_ROOT` / `MCP_EXTRA_ROOTS` define the allowed project registry (prefix or glob). `cwd` must match one of them. |
+| **Registered roots** | `MCP_PROJECT_ROOT` / `MCP_EXTRA_ROOTS` / `MCP_PROJECT_NAMES` define the allowed project registry (prefix or glob). `cwd` must match one of them. |
 | **Directory restriction** | Commands execute with `cwd` set to the resolved project root. `cd ..`, `cd ~`, absolute-path `cd`, and Windows `cd /d` are rejected. |
 | **Dangerous pattern detection** | Regex blacklist blocks destructive commands (`rm -rf`, `format`, `shutdown`, `git push --force`, fork bombs, pipe-to-shell, etc.). |
 | **Write-target check** | Best-effort detection of writes outside the active root (`>`, `>>`, `2>`, `copy`, `move`, `mkdir`, `tee`, `curl -o`, ...). Writing from project A into project B is blocked even if B is registered — pick B via `cwd` instead. |
