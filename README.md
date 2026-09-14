@@ -2,12 +2,12 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-300%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-306%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-blue)](#)
 [![M8ven Verified](https://m8ven.ai/badge/mcp/majrooo-majrooo-mcp-devkit-1o7w0p?variant=verified&v=643cba735869b4d4839f4a2109162cb0)](https://m8ven.ai/mcp/majrooo-majrooo-mcp-devkit-1o7w0p)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.1 · **Tests:** 300 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.1.1 · **Tests:** 306 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -118,7 +118,7 @@ Apply multiple file edits atomically with rollback on failure. Validates all edi
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `edits` | object[] | — | `[{ file, search, replace, description?, replaceAll? }]` |
+| `edits` | object[] | — | `[{ file, search, replace, description?, replaceAll?, excludePatterns? }]` |
 | `dryRun` | boolean | true | Preview all changes without writing |
 | `cwd` | string | primary root | Working dir for resolving relative file paths |
 
@@ -286,7 +286,7 @@ Never run test suites (`jest`/`npm test`), typecheck or builds through the Cline
 3. If the task targets a project other than the primary one, pass the resolved path as `cwd` on every command (`run_safe_command`, `run_destructive_command`, `run_command_grep`).
 4. Otherwise, omit `cwd` — commands run in the primary root.
 
-> **Relative paths:** File-based refactoring tools (`batch_apply_edits`, `extract_code_block`, `split_file_by_declarations`, `generate_module_skeleton`) resolve relative paths against the primary root when `cwd` is omitted. If the file doesn't exist in the primary root, all other registered roots are searched automatically — a unique match is used directly, while multiple matches produce an error with instructions to specify `cwd`. When `cwd` is provided, the path always resolves against that root.
+> **Relative paths:** File-based refactoring tools (`batch_apply_edits`, `extract_code_block`, `split_file_by_declarations`, `generate_module_skeleton`) resolve relative paths against the primary root when `cwd` is omitted. If the file doesn't exist in the primary root (or in the `cwd` root when `cwd` is provided), all other registered roots are searched automatically — a unique match is used directly, while multiple matches produce an error with instructions to specify `cwd`.
 
 ## Safety Mechanisms
 

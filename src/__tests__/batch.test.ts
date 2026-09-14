@@ -142,4 +142,126 @@ describe("batchApplyEdits", () => {
     expect(content).toContain("AAA");
     expect(content).toContain("BBB");
   });
+
+  // ── Sequential application (bug fix) ──────────────────────
+
+  it("sequential edits: edit 2 depends on edit 1's replacement", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "chain.rs", "const MATERIALS: usize = 3;\nlet x = MATERIALS;");
+    // Edit 1: rename MATERIALS → DEFAULT_MATERIALS (replaceAll since it appears twice)
+    // Edit 2: update usage of DEFAULT_MATERIALS (searches for the NEW name)
+    const result = batchApplyEdits([
+      { file: f, search: "MATERIALS", replace: "DEFAULT_MATERIALS", replaceAll: true },
+      { file: f, search: "DEFAULT_MATERIALS", replace: "MATERIAL_COUNT", replaceAll: true },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(f, "utf-8");
+    expect(content).toContain("MATERIAL_COUNT");
+    expect(content).not.toContain("MATERIALS");
+    expect(content).not.toContain("DEFAULT_MATERIALS");
+  });
+
+  it("sequential edits: rollback on failure after partial apply", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "rollback.rs", "aaa bbb ccc");
+    // Edit 1: aaa → AAA (will succeed)
+    // Edit 2: NOTEXIST → X (will fail)
+    const result = batchApplyEdits([
+      { file: f, search: "aaa", replace: "AAA" },
+      { file: f, search: "NOTEXIST", replace: "X" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    // File should be rolled back to original
+    expect(fs.readFileSync(f, "utf-8")).toBe("aaa bbb ccc");
+  });
+
+  it("sequential edits: dry-run validates against original (may differ from apply)", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "drychain.rs", "const MATERIALS: usize = 3;\nlet x = MATERIALS;");
+    // Dry-run validates all against original — edit 2 searches for DEFAULT_MATERIALS
+    // which doesn't exist in original, so dry-run reports error for edit 2.
+    const dryResult = batchApplyEdits([
+      { file: f, search: "MATERIALS", replace: "DEFAULT_MATERIALS", replaceAll: true },
+      { file: f, search: "DEFAULT_MATERIALS", replace: "MATERIAL_COUNT", replaceAll: true },
+    ], { dryRun: true });
+    // Dry-run defers validation for edit 2 (chained on same file)
+    expect("dryRun" in dryResult && dryResult.dryRun).toBe(true);
+  });
+
+  // ── excludePatterns (bug fix) ────────────────────────────
+
+  it("replaceAll with excludePatterns skips excluded regions", () => {
+    tmp = tmpDir();
+    const rustCode = [
+      "pub fn do_work() {",
+      "    let hold_state = State::new();",
+      "    hold_state.update();",
+      "}",
+      "",
+      "#[cfg(test)]",
+      "mod tests {",
+      "    use super::*;",
+      "    #[test]",
+      "    fn test_hold_state() {",
+      "        let hold_state = State::default();",
+      "        hold_state.validate();",
+      "    }",
+      "}",
+    ].join("\n");
+    const f = createTmpFile(tmp, "test.rs", rustCode);
+    const result = batchApplyEdits([
+      {
+        file: f,
+        search: "hold_state",
+        replace: "hold_follow.hold",
+        replaceAll: true,
+        excludePatterns: ["#[cfg(test)]"],
+      },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(f, "utf-8");
+    // Function body should be updated
+    expect(content).toContain("hold_follow.hold.update();");
+    // Test module should be untouched
+    expect(content).toContain("let hold_state = State::default();");
+    expect(content).toContain("hold_state.validate();");
+  });
+
+  it("replaceAll without excludePatterns replaces everything", () => {
+    tmp = tmpDir();
+    const code = "let hold_state = 1;\nhold_state.update();\n// hold_state in comment";
+    const f = createTmpFile(tmp, "noexclude.rs", code);
+    const result = batchApplyEdits([
+      { file: f, search: "hold_state", replace: "x", replaceAll: true },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(f, "utf-8");
+    expect(content).not.toContain("hold_state");
+    expect(content).toContain("let x = 1;");
+  });
+
+  it("excludePatterns with #[test] annotation skips single-line blocks", () => {
+    tmp = tmpDir();
+    const code = "const FOO: i32 = 42;\n#[test]\nfn test_foo() { assert_eq!(FOO, 42); }";
+    const f = createTmpFile(tmp, "annot.rs", code);
+    const result = batchApplyEdits([
+      {
+        file: f,
+        search: "FOO",
+        replace: "BAR",
+        replaceAll: true,
+        excludePatterns: ["#[test]"],
+      },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    const content = fs.readFileSync(f, "utf-8");
+    // Top-level const should be updated
+    expect(content).toContain("const BAR: i32 = 42;");
+    // Test function should be untouched
+    expect(content).toContain("assert_eq!(FOO, 42);");
+  });
 });

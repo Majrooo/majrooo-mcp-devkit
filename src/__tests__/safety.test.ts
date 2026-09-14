@@ -846,12 +846,12 @@ describe("resolveFilePath — multi-root fallback", () => {
 
     const roots = [rootA, rootB];
     const regs = buildRegistrations(roots);
-    // With cwd = rootA, resolves to rootA/docs/README.md (inside rootA, ok:true)
-    // Fallback does NOT trigger because cwd is provided
+    // With cwd = rootA, file doesn't exist in rootA/docs/README.md.
+    // The fallback now triggers and finds the file in rootB/docs/README.md.
     const r = resolveFilePath("docs/README.md", rootA, regs, roots, rootA);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.filePath).toBe(path.join(rootA, "docs", "README.md"));
+      expect(r.filePath).toBe(path.join(rootB, "docs", "README.md"));
     }
   });
 

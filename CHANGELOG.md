@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_No changes yet._
+### Added
+- `batch_apply_edits`: `excludePatterns` parameter — when `replaceAll` is used with `excludePatterns`, occurrences inside excluded regions (e.g. `#[cfg(test)]` blocks) are skipped. Handles annotation-on-separate-line with 5-line lookahead for opening brace.
+- `batch_apply_edits`: sequential validation in Phase 2 — each edit is re-validated against current file state (after previous edits) with rollback on failure. Phase 1 defers validation for chained edits on same file.
+- 6 new tests (total 306, up from 300)
+
+### Changed
+- `resolveFilePath()` multi-root fallback now triggers even when `cwd` is provided but the file doesn't exist at the resolved location. Scans all allowed roots for the relative path — 1 match auto-resolves, 2+ shows disambiguation error.
+- `run_command_grep`: catch block now extracts stdout/stderr from exec error object. Non-zero exit code with output returns matches instead of error.
+
+### Fixed
+- `batch_apply_edits`: sequential application — edit 2 can now find text created by edit 1 on the same file (was failing with "search string not found" because Phase 1 validated all edits against original file content).
+- `batch_apply_edits`: `replaceAll` no longer breaks test code — use `excludePatterns: ["#[cfg(test)]"]` to skip test modules.
+- `run_command_grep`: zero matches with non-zero exit code now returns empty result instead of error.
+- `extract_code_block`: relative paths now resolve across all allowed roots even when `cwd` is provided.
+
+### Known Limitations (documented)
+- `batch_apply_edits`: atomic rollback (all-or-nothing) is by design — use separate tool calls for non-atomic edits.
+- `run_safe_command`: 60s client-side timeout limit (MCP client, not server) — use `run_commands` tool for long-running commands.
+- Windows `cmd.exe`: `;` is not a command separator — use `&` or separate tool calls.
 
 ## [0.1.1] - 2026-09-12
 

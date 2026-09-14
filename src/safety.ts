@@ -232,9 +232,10 @@ export type FilePathResult = { ok: true; filePath: string } | { ok: false; error
  *
  * - absolute path → validate against allowed roots, return as-is;
  * - relative path + cwd → resolve against cwd, then validate;
- * - relative path, no cwd → try primary root first; if not found on disk,
- *   scan remaining allowed roots: 1 match → return it; 2+ → disambiguation error;
- *   0 → error with allowed roots list;
+ * - relative path, no cwd → try primary root first;
+ * In both cases, if the file doesn't exist on disk in the resolved location,
+ * scan all allowed roots: 1 match → return it; 2+ → disambiguation error;
+ * 0 → error with allowed roots list;
  * - alias lookup: bare tokens without separators are checked against project aliases.
  */
 export function resolveFilePath(
@@ -268,11 +269,11 @@ export function resolveFilePath(
   // Validate against allowed roots
   const registration = findMatchingRegistration(resolved, registrations);
   if (registration) {
-    // ── Fallback: when cwd is omitted and the file doesn't exist on disk in
-    //    the primary root, scan other allowed roots to find it.  This handles
-    //    the common case where a user has multiple projects registered and
-    //    passes a relative path without specifying which project they mean.
-    if (!cwd && !path.isAbsolute(filePath) && !existsSync(resolved)) {
+    // ── Fallback: when the file doesn't exist on disk at the resolved location,
+    //    scan all allowed roots to find it. This handles the common case where
+    //    a user has multiple projects registered and passes a relative path that
+    //    resolves to a non-existent location (wrong cwd, or no cwd specified).
+    if (!path.isAbsolute(filePath) && !existsSync(resolved)) {
       const matches: string[] = [];
       for (const root of allowedRoots) {
         const candidate = path.resolve(root, filePath);

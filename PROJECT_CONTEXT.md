@@ -23,7 +23,7 @@
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
 * **Language support:** Refactoring tools (`universal_find_references`, `split_file_by_declarations`, `generate_module_skeleton`, `verify_refactor_safety`) support Rust, TypeScript, Python, and C++ (`generate_module_skeleton` supports Rust, TypeScript, Python only). Rust is fully tested in production; others are structurally supported but untested. `extract_code_block` and `batch_apply_edits` are language-agnostic.
-* **Testing:** Vitest — `npm test` (300 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Testing:** Vitest — `npm test` (306 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
   * `src/` — TypeScript sources (`index.ts`, `commands.ts`, `helpers.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
@@ -40,7 +40,7 @@
 7. `universal_find_references` — find all occurrences of a symbol across a workspace (read-only, structured output with optional language-aware role detection).
 8. `extract_code_block` — extract the full text of a function/struct/class from a file (annotation-aware, string/comment-safe bracket matching).
 9. `split_file_by_declarations` — split a large file into multiple smaller files based on top-level declarations (dryRun default, index generation, `cwd` for relative paths).
-10. `batch_apply_edits` — apply multiple file edits atomically with rollback on failure (validation before write, dryRun default).
+10. `batch_apply_edits` — apply multiple file edits atomically with rollback on failure (validation before write, dryRun default, `excludePatterns` for replaceAll scoping).
 11. `generate_module_skeleton` — generate a new module file with extracted symbols from a source file (unknown symbols error, dryRun default, `cwd` for relative paths).
 12. `verify_refactor_safety` — semantic diff between old and new code; catches accidental deletions (function count, signatures, exports, imports, comment ratio).
 13. `report_tool_feedback` — report bugs, improvements, or feature requests about any MCP tool (writes to `.mcp/FEEDBACK.md`, idempotent, project-protected).
@@ -72,7 +72,7 @@
 |---|---|
 | `npm install` | Install dependencies |
 | `npm run build` | Compile TypeScript (`tsc` → `build/`) |
-| `npm test` | Run Vitest unit tests (300 tests, `src/__tests__` only) |
+| `npm test` | Run Vitest unit tests (306 tests, `src/__tests__` only) |
 | `npm run test:watch` | Vitest watch mode (`src/__tests__`) |
 | `node build/index.js` | Run the MCP server (STDIO) |
 | `npm ls --depth=0` | List installed dependencies |
