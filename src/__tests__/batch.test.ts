@@ -264,4 +264,71 @@ describe("batchApplyEdits", () => {
     // Test function should be untouched
     expect(content).toContain("assert_eq!(FOO, 42);");
   });
+
+  // ── partial rollback (bug fix) ────────────────────────────
+
+  it("partial rollback: preserves edits on earlier files when later chained edit fails", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "a.ts", "const X = 1;");
+    const f2 = createTmpFile(tmp, "b.ts", "const Y = 2;");
+    // Edit 1 on f1 (succeeds), Edit 2 on f2 (succeeds),
+    // Edit 3 on f1 chained (Phase 1 deferred, Phase 2 fails — NOTEXIST after X was replaced)
+    const result = batchApplyEdits([
+      { file: f1, search: "X", replace: "A" },
+      { file: f2, search: "Y", replace: "B" },
+      { file: f1, search: "NOTEXIST", replace: "C" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    if ("error" in result) expect(result.failedAt).toBe(2);
+    // f1 was modified by edit 0 but rolled back by edit 2 failure (same file)
+    expect(fs.readFileSync(f1, "utf-8")).toBe("const X = 1;");
+    // f2 (edited before failure on a different file) should be preserved
+    expect(fs.readFileSync(f2, "utf-8")).toBe("const B = 2;");
+  });
+
+  it("partial rollback: preserves multiple earlier file edits", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "x.ts", "aaa");
+    const f2 = createTmpFile(tmp, "y.ts", "bbb");
+    const f4 = createTmpFile(tmp, "w.ts", "ddd");
+    // Edit 1 on f1 (succeeds), Edit 2 on f2 (succeeds),
+    // Edit 3 on f1 chained (deferred, fails), Edit 4 on f4 (not reached)
+    const result = batchApplyEdits([
+      { file: f1, search: "aaa", replace: "AAA" },
+      { file: f2, search: "bbb", replace: "BBB" },
+      { file: f1, search: "NOTEXIST", replace: "CCC" },
+      { file: f4, search: "ddd", replace: "DDD" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    // f1 reverted (failed chain on same file)
+    expect(fs.readFileSync(f1, "utf-8")).toBe("aaa");
+    // f2 preserved (different file, edited before failure)
+    expect(fs.readFileSync(f2, "utf-8")).toBe("BBB");
+    // f4 reverted (edit not yet applied, rollback reverts to original)
+    expect(fs.readFileSync(f4, "utf-8")).toBe("ddd");
+  });
+
+  it("partial rollback: same-file chain failure reverts entire file", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "chain.rs", "const MATERIALS: usize = 3;");
+    const result = batchApplyEdits([
+      { file: f, search: "MATERIALS", replace: "DEFAULT_MATERIALS" },
+      { file: f, search: "NOTEXIST", replace: "X" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    // Same file: entire file is rolled back (can't partially undo a single file)
+    expect(fs.readFileSync(f, "utf-8")).toBe("const MATERIALS: usize = 3;");
+  });
+
+  it("partial rollback: all edits on same file — rollback entire file on failure", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "single.ts", "const A = 1; const B = 2;");
+    const result = batchApplyEdits([
+      { file: f, search: "A", replace: "X" },
+      { file: f, search: "NOTFOUND", replace: "Y" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    // Both edits were on same file, entire file rolled back
+    expect(fs.readFileSync(f, "utf-8")).toBe("const A = 1; const B = 2;");
+  });
 });

@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-// src/batch.ts — apply multiple file edits atomically with rollback on failure.
+// src/batch.ts — apply multiple file edits with partial rollback on failure.
 import fs from "fs";
 
 export interface EditObject {
@@ -109,9 +109,11 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
 
   if (dryRun) return { dryRun: true, totalEdits: edits.length, validated: edits.length, preview };
 
-  // Phase 2: Apply sequentially with per-edit validation and rollback.
+  // Phase 2: Apply sequentially with per-edit validation and partial rollback.
   // Each edit is validated against the CURRENT file state (after previous edits),
   // so chained edits on the same file work correctly.
+  // On failure: rollback only files modified by the failed edit and later edits,
+  // preserving successfully completed edits on other files.
   const fileStates = new Map<string, { original: string; current: string; eol: string }>();
   try {
     for (let i = 0; i < edits.length; i++) {
@@ -129,15 +131,30 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
         ? countReplacableOccurrences(state.current, edit.search, excludeRanges)
         : countOccurrences(state.current, edit.search);
       if (count === 0) {
-        // Rollback all changes
+        // Partial rollback: only revert files modified by this edit and later edits.
+        // Files successfully modified by earlier edits are preserved.
+        const filesToRevert = new Set<string>();
+        filesToRevert.add(edit.file);
+        for (let j = i + 1; j < edits.length; j++) {
+          if (edits[j]!.file !== edit.file) filesToRevert.add(edits[j]!.file);
+        }
         for (const [file, st] of fileStates) {
-          try { fs.writeFileSync(file, st.original, "utf-8"); } catch { /* best effort */ }
+          if (filesToRevert.has(file)) {
+            try { fs.writeFileSync(file, st.original, "utf-8"); } catch { /* best effort */ }
+          }
         }
         return { error: `search string not found in ${edit.file} (after previous edits)`, failedAt: i, preview };
       }
       if (count > 1 && !edit.replaceAll) {
+        const filesToRevert = new Set<string>();
+        filesToRevert.add(edit.file);
+        for (let j = i + 1; j < edits.length; j++) {
+          if (edits[j]!.file !== edit.file) filesToRevert.add(edits[j]!.file);
+        }
         for (const [file, st] of fileStates) {
-          try { fs.writeFileSync(file, st.original, "utf-8"); } catch { /* best effort */ }
+          if (filesToRevert.has(file)) {
+            try { fs.writeFileSync(file, st.original, "utf-8"); } catch { /* best effort */ }
+          }
         }
         return { error: `search string found ${count} times in ${edit.file} (replaceAll: false)`, failedAt: i, preview };
       }
@@ -150,7 +167,7 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
       fs.writeFileSync(edit.file, restoreLineEndings(newContent, state.eol), "utf-8");
     }
   } catch (err) {
-    // Rollback
+    // Rollback only files that were modified
     for (const [file, state] of fileStates) {
       try { fs.writeFileSync(file, state.original, "utf-8"); } catch { /* best effort */ }
     }

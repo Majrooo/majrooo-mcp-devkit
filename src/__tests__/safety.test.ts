@@ -719,6 +719,32 @@ describe("bypass attempts — findEscapeReason", () => {
     expect(findEscapeReason("cd src/components")).toBeNull();
   });
 });
+describe("findEscapeReason — git -C bypass", () => {
+  const cwd = "D:\\Work\\project";
+
+  it("allows git -C with path inside cwd (no escape pattern matches)", () => {
+    // git -C itself doesn't match any ESCAPE_PATTERNS (they require cd/pushd prefix)
+    expect(findEscapeReason("git -C \"D:\\Work\\project\" status", cwd)).toBeNull();
+  });
+
+  it("allows git -C with relative path", () => {
+    expect(findEscapeReason("git -C src status", cwd)).toBeNull();
+  });
+
+  it("still blocks cd .. even when cwd is provided", () => {
+    expect(findEscapeReason("cd ..", cwd)).not.toBeNull();
+  });
+
+  it("blocks cd .. even in a chain that also has git -C", () => {
+    // git -C is fine, but cd .. is an escape — must be blocked
+    expect(findEscapeReason("git -C \"D:\\Work\\project\" status && cd ..", cwd)).not.toBeNull();
+  });
+
+  it("allows git --git-dir with path inside cwd", () => {
+    expect(findEscapeReason("git --git-dir \"D:\\Work\\project\\.git\" status", cwd)).toBeNull();
+  });
+});
+
 
 describe("bypass attempts — isWithinAllowedDir", () => {
   it("rejects command with backtick-escaped cd", () => {

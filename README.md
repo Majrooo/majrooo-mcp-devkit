@@ -114,7 +114,7 @@ Split a large file into multiple smaller files based on top-level declarations. 
 
 ### `batch_apply_edits`
 
-Apply multiple file edits atomically with rollback on failure. Validates all edits first — if any `search` string is not found or matches multiple times (without `replaceAll`), NO files are modified. Relative paths without `cwd` are resolved against the primary root; if the file doesn't exist there, all other registered roots are searched automatically (unique match → use it; multiple matches → error with instructions to specify `cwd`).
+Apply multiple file edits with partial rollback on failure. Validates all edits first — if any `search` string is not found or matches multiple times (without `replaceAll`), NO files are modified. On failure during application, only files modified by the failed edit and subsequent edits are reverted; earlier successful edits are preserved. Same-file chain failures revert the entire file. Relative paths without `cwd` are resolved against the primary root; if the file doesn't exist there, all other registered roots are searched automatically (unique match → use it; multiple matches → error with instructions to specify `cwd`).
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|

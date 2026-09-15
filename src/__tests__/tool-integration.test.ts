@@ -26,7 +26,7 @@ const TOOL_DEFS: [string, string, z.ZodObject<any>][] = [
   ["universal_find_references", "Find symbol occurrences.", z.object({ symbol: z.string() })],
   ["extract_code_block", "Extract a function/struct/class.", z.object({ file: z.string(), symbol: z.string() })],
   ["split_file_by_declarations", "Split a file into smaller files.", z.object({ file: z.string(), grouping: z.array(z.object({ module: z.string(), symbols: z.array(z.string()) })) })],
-  ["batch_apply_edits", "Apply edits atomically.", z.object({ edits: z.array(z.object({ file: z.string(), search: z.string(), replace: z.string() })), dryRun: z.boolean().optional() })],
+  ["batch_apply_edits", "Apply edits with partial rollback.", z.object({ edits: z.array(z.object({ file: z.string(), search: z.string(), replace: z.string() })), dryRun: z.boolean().optional() })],
   ["generate_module_skeleton", "Generate a module file.", z.object({ modulePath: z.string(), symbols: z.array(z.string()), sourceFile: z.string() })],
   ["verify_refactor_safety", "Semantic diff between code versions.", z.object({ before: z.string(), after: z.string() })],
   ["report_tool_feedback", "Report a bug or improvement.", z.object({ type: z.enum(["bug", "improvement", "feature_request"]), tool: z.string(), title: z.string(), description: z.string() })],

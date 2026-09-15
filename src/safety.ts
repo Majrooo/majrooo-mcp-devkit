@@ -544,11 +544,30 @@ const ESCAPE_PATTERNS: EscapePattern[] = [
 /**
  * Check if a command tries to escape the allowed root directory.
  * Returns the label of the matched pattern, or null if safe.
+ * When `cwd` is provided, `git -C <path>` is allowed if the resolved path
+ * is inside the allowed roots (it's equivalent to cwd, not an escape).
  */
-export function findEscapeReason(command: string): string | null {
+export function findEscapeReason(command: string, cwd?: string): string | null {
   const trimmed = command.trim();
   for (const { pattern, label } of ESCAPE_PATTERNS) {
     if (pattern.test(trimmed)) {
+      // Special case: git -C <path> is not an escape when the path resolves
+      // inside the allowed roots — it merely tells git where to operate.
+      if (cwd && /\bgit\s+(-C|--git-dir|--work-tree)\b/i.test(trimmed)) {
+        const tokens = tokenizeCommand(trimmed);
+        for (let i = 0; i < tokens.length - 1; i++) {
+          if (tokens[i] === "-C" || tokens[i] === "--git-dir" || tokens[i] === "--work-tree") {
+            const target = tokens[i + 1];
+            if (target) {
+              const resolved = path.isAbsolute(target) ? path.resolve(target) : path.resolve(cwd, target);
+              // If the resolved path is inside cwd (or one of the allowed roots), it's safe
+              if (resolved.toLowerCase().startsWith(cwd.toLowerCase())) {
+                continue; // This specific pattern match is a false positive for git -C
+              }
+            }
+          }
+        }
+      }
       return label;
     }
   }

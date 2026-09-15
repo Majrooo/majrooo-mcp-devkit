@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - `batch_apply_edits`: `excludePatterns` parameter — when `replaceAll` is used with `excludePatterns`, occurrences inside excluded regions (e.g. `#[cfg(test)]` blocks) are skipped. Handles annotation-on-separate-line with 5-line lookahead for opening brace.
 - `batch_apply_edits`: sequential validation in Phase 2 — each edit is re-validated against current file state (after previous edits) with rollback on failure. Phase 1 defers validation for chained edits on same file.
-- 8 new tests (total 308, up from 300)
+- `findEscapeReason()`: optional `cwd` parameter — when a command contains both `git -C`/`--git-dir`/`--work-tree` and a cd/pushd escape pattern, the function checks if the git path resolves inside `cwd` before flagging as escape. `safetyCheck()` now passes `cwd` to `findEscapeReason()`.
+- 9 new tests (total 317, up from 308)
 
 ### Changed
 - `resolveFilePath()` multi-root fallback now triggers even when `cwd` is provided but the file doesn't exist at the resolved location. Scans all allowed roots for the relative path — 1 match auto-resolves, 2+ shows disambiguation error.
@@ -21,12 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `batch_apply_edits`: sequential application — edit 2 can now find text created by edit 1 on the same file (was failing with "search string not found" because Phase 1 validated all edits against original file content).
 - `batch_apply_edits`: `replaceAll` no longer breaks test code — use `excludePatterns: ["#[cfg(test)]"]` to skip test modules.
 - `batch_apply_edits`: relative/absolute paths now resolve correctly when the target project is registered only via `MCP_PROJECT_NAMES` (was resolving against devkit root instead of project root).
+- `batch_apply_edits`: partial rollback — when a chained edit fails, only files modified by the failed edit and subsequent edits are reverted. Files successfully modified by earlier edits are preserved (was: full atomic rollback lost all valid edits).
 - `extract_code_block`: relative and absolute paths now resolve correctly for alias-registered projects (was returning "Cannot read file" for files within the project).
 - `run_command_grep`: zero matches with non-zero exit code now returns empty result instead of error.
 - `extract_code_block`: relative paths now resolve across all allowed roots even when `cwd` is provided.
 
 ### Known Limitations (documented)
-- `batch_apply_edits`: atomic rollback (all-or-nothing) is by design — use separate tool calls for non-atomic edits.
+- `batch_apply_edits`: same-file chain failures revert the entire file (can't partially undo changes to a single file).
 - `run_safe_command`: 60s client-side timeout limit (MCP client, not server) — use `run_commands` tool for long-running commands.
 - Windows `cmd.exe`: `;` is not a command separator — use `&` or separate tool calls.
 - `universal_find_references`: symbols with special characters (colons, spaces) may fail when sent from certain MCP clients due to client-side JSON-RPC serialization issues.

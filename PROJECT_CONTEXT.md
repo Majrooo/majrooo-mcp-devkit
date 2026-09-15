@@ -40,7 +40,7 @@
 7. `universal_find_references` — find all occurrences of a symbol across a workspace (read-only, structured output with optional language-aware role detection).
 8. `extract_code_block` — extract the full text of a function/struct/class from a file (annotation-aware, string/comment-safe bracket matching).
 9. `split_file_by_declarations` — split a large file into multiple smaller files based on top-level declarations (dryRun default, index generation, `cwd` for relative paths).
-10. `batch_apply_edits` — apply multiple file edits atomically with rollback on failure (validation before write, dryRun default, `excludePatterns` for replaceAll scoping).
+10. `batch_apply_edits` — apply multiple file edits with partial rollback on failure (preserves earlier successful edits when a later edit fails) (validation before write, dryRun default, `excludePatterns` for replaceAll scoping).
 11. `generate_module_skeleton` — generate a new module file with extracted symbols from a source file (unknown symbols error, dryRun default, `cwd` for relative paths).
 12. `verify_refactor_safety` — semantic diff between old and new code; catches accidental deletions (function count, signatures, exports, imports, comment ratio).
 13. `report_tool_feedback` — report bugs, improvements, or feature requests about any MCP tool (writes to `.mcp/FEEDBACK.md`, idempotent, project-protected).

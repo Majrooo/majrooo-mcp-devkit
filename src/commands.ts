@@ -43,7 +43,7 @@ function getExecOptions(cwd: string, timeoutMs: number) {
 }
 
 export function safetyCheck(command: string, cwd: string, registration: Registration): SafetyVerdict {
-  const escape = findEscapeReason(command);
+  const escape = findEscapeReason(command, cwd);
   if (escape) return { kind: "directory_escape", reason: escape };
   const dangerous = isDangerous(command);
   if (dangerous) return { kind: "dangerous", match: dangerous };

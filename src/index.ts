@@ -520,8 +520,8 @@ server.tool(
 
 server.tool(
   "batch_apply_edits",
-  "Apply multiple file edits atomically with rollback on failure. " +
-  "Validates all edits first — if any search string is not found, NO files are modified. " +
+  "Apply multiple file edits with partial rollback on failure. " +
+  "Validates all edits first — on failure, only the failed edit and later edits are reverted; earlier successful edits are preserved. " +
   "Use dryRun: true (default) to preview changes.",
   {
     edits: z.array(z.object({
@@ -773,7 +773,7 @@ registerToolInfo("split_file_by_declarations", "Split a large file into multiple
     overwrite: z.boolean().optional().describe("Allow overwriting existing target files (default: false)"),
   }),
 );
-registerToolInfo("batch_apply_edits", "Apply multiple file edits atomically with rollback on failure. Validates all edits first. Use dryRun: true (default) to preview.",
+registerToolInfo("batch_apply_edits", "Apply multiple file edits with partial rollback on failure. Validates all edits first — on failure, only files modified by the failed edit and later edits are reverted; earlier successful edits are preserved. Use dryRun: true (default) to preview.",
   z.object({
     edits: z.array(z.object({
       file: z.string().describe("File path inside allowed root"),
