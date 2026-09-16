@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `universal_find_references`: `cwd` was documented as "default: primary project root" while the implementation searched every registered root — the description now matches the behaviour (tool description, `cwd` parameter, `help_tool`, README).
 - **The test suite is no longer Windows-only.** Fixtures that were hardcoded `D:\...` / `Z:\...` literals are *relative* paths on POSIX, so the affected tests could only pass on Windows (`resolveCwdRequested`, `resolveFilePath`, `resolve_cwd`, `buildRegistrations / findMatchingRegistration`, `findOutOfRootWriteTargets`, `findSuspiciousCrossRootReads`, `findAliasByName / findAliasByPath`, `findEscapeReason — git -C bypass`). They now build a real tree under `os.tmpdir()` with `path.join`/`path.sep` — the pattern the multi-root fallback block already used — and separator-agnostic path assertions. Coverage is unchanged (348 tests, still green on Windows); POSIX is enforced by the new CI job.
 
+### Known Limitations (documented)
+- **POSIX: the command-target heuristics are Windows-only.** `isFlag()` treats a token like `/x` as a cmd flag, so an absolute POSIX path (`/tmp/proj/newdir`) is never picked up by the `mkdir`/`copy`/`move` write-target check (`findOutOfRootWriteTargets`), and `QUOTED_PATH` of the cross-root read check (`findSuspiciousCrossRootReads`, only active with `MCP_BLOCK_CROSS_ROOT_READS=1`) matches `C:\`, `../` and `~/` only. Redirect targets (`>`), `curl -o` and `git -C` are platform-neutral. Found by the new ubuntu CI job; the affected assertions are skipped off Windows (5 tests in `safety.test.ts`) until the heuristics learn POSIX paths.
+
 ## [0.2.0] - 2026-09-16
 
 ### Added
