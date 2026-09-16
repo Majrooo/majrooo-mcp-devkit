@@ -313,45 +313,71 @@ describe("findEscapeReason", () => {
 
 // ── Allowed roots registry (prefix + glob) ─────────────────
 
+/** Mirror of safety.ts normalizePath() for assertions: forward slashes, no trailing slash. */
+function normalizedRoot(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
 describe("buildRegistrations / findMatchingRegistration", () => {
-  const regs = buildRegistrations(["D:\\W\\TS\\majrooo-mcp-devkit", "D:\\W", "D:\\W\\TS\\*", "D:\\python"]);
+  // Fixtures live in the OS temp dir: hardcoded Windows literals are RELATIVE
+  // paths on POSIX, so they never match a registration there (findMatchingRegistration
+  // resolves the candidate while buildRegistrations only normalises the entry).
+  let tmpRoot: string;
+  let broad: string;
+  let ts: string;
+  let devkit: string;
+  let regs: ReturnType<typeof buildRegistrations>;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "registry-test-"));
+    broad = path.join(tmpRoot, "broad");
+    ts = path.join(broad, "ts");
+    devkit = path.join(ts, "majrooo-mcp-devkit");
+    fs.mkdirSync(devkit, { recursive: true });
+    fs.mkdirSync(path.join(broad, "python"), { recursive: true });
+    regs = buildRegistrations([devkit, broad, path.join(ts, "*"), path.join(broad, "python")]);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
   it("matches exact root", () => {
-    const m = findMatchingRegistration("D:\\W\\TS\\majrooo-mcp-devkit", regs);
+    const m = findMatchingRegistration(devkit, regs);
     expect(m).not.toBeNull();
   });
 
-  it("plain prefix matches nested paths (registering D:\\W covers everything under it)", () => {
-    const m = findMatchingRegistration("D:\\W\\Work\\TypeScript\\CestovnaBalicka", regs);
+  it("plain prefix matches nested paths (registering the parent covers everything under it)", () => {
+    const m = findMatchingRegistration(path.join(broad, "work", "some-project"), regs);
     expect(m).not.toBeNull();
   });
 
-  it("glob TS\\* matches direct children and their subtree", () => {
-    expect(findMatchingRegistration("D:\\W\\TS\\some-project", regs)).not.toBeNull();
-    expect(findMatchingRegistration("D:\\W\\TS\\some-project\\src", regs)).not.toBeNull();
+  it("glob <ts>/* matches direct children and their subtree", () => {
+    expect(findMatchingRegistration(path.join(ts, "some-project"), regs)).not.toBeNull();
+    expect(findMatchingRegistration(path.join(ts, "some-project", "src"), regs)).not.toBeNull();
   });
 
-  it("glob TS\\* does NOT match siblings outside the glob (without broader prefix)", () => {
-    const globOnly = buildRegistrations(["D:\\W\\TS\\*"]);
-    expect(findMatchingRegistration("D:\\W\\TS\\projA", globOnly)).not.toBeNull();
-    expect(findMatchingRegistration("D:\\W\\TSofSomething", globOnly)).toBeNull();
-    expect(findMatchingRegistration("D:\\W\\Work\\x", globOnly)).toBeNull();
+  it("glob <ts>/* does NOT match siblings outside the glob (without broader prefix)", () => {
+    const globOnly = buildRegistrations([path.join(ts, "*")]);
+    expect(findMatchingRegistration(path.join(ts, "projA"), globOnly)).not.toBeNull();
+    expect(findMatchingRegistration(`${ts}OfSomething`, globOnly)).toBeNull();
+    expect(findMatchingRegistration(path.join(tmpRoot, "work", "x"), globOnly)).toBeNull();
   });
 
   it("broad prefix still matches nested paths that the glob rejects", () => {
-    const m = findMatchingRegistration("D:\\W\\TSofSomething", regs);
-    expect(m?.entry).toBe("D:/W");
+    const m = findMatchingRegistration(`${ts}OfSomething`, regs);
+    expect(m?.entry).toBe(normalizedRoot(broad));
   });
 
   it("does not match unrelated roots", () => {
-    const bare = buildRegistrations(["D:\\W\\TS\\majrooo-mcp-devkit"]);
-    expect(findMatchingRegistration("D:\\Other", bare)).toBeNull();
-    expect(findMatchingRegistration("C:\\Windows", bare)).toBeNull();
+    const bare = buildRegistrations([devkit]);
+    expect(findMatchingRegistration(path.join(tmpRoot, "unrelated"), bare)).toBeNull();
+    expect(findMatchingRegistration(path.join(os.tmpdir(), "unrelated-xyz"), bare)).toBeNull();
   });
 
   it("most specific registration wins", () => {
-    const m = findMatchingRegistration("D:\\W\\TS\\majrooo-mcp-devkit\\src", regs);
-    expect(m?.entry).toBe("D:/W/TS/majrooo-mcp-devkit");
+    const m = findMatchingRegistration(path.join(devkit, "src"), regs);
+    expect(m?.entry).toBe(normalizedRoot(devkit));
   });
 });
 
@@ -408,8 +434,27 @@ describe("resolveCwdRequested", () => {
 // ── Write-target detection ─────────────────────────────────
 
 describe("findOutOfRootWriteTargets", () => {
-  const regA = buildRegistrations(["D:\\W\\TS\\projA"])[0]!;
-  const cwdA = "D:\\W\\TS\\projA";
+  // Real temp tree — Windows literals are relative paths on POSIX, so every
+  // target would look "outside the root" there.
+  let tmpRoot: string;
+  let projA: string;
+  let projB: string;
+  let regA: ReturnType<typeof buildRegistrations>[0];
+  let cwdA: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "write-target-test-"));
+    projA = path.join(tmpRoot, "projA");
+    projB = path.join(tmpRoot, "projB");
+    fs.mkdirSync(projA, { recursive: true });
+    fs.mkdirSync(projB, { recursive: true });
+    regA = buildRegistrations([projA])[0]!;
+    cwdA = projA;
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
   it("allows redirects inside the active root", () => {
     const found = findOutOfRootWriteTargets("npm run build > out.log 2>&1 && type out.log", cwdA, regA);
@@ -418,7 +463,7 @@ describe("findOutOfRootWriteTargets", () => {
 
   it("blocks redirects outside the active root (even if another registered root exists)", () => {
     const found = findOutOfRootWriteTargets(
-      "npm run build > D:\\W\\TS\\projB\\out.log",
+      `npm run build > "${path.join(projB, "out.log")}"`,
       cwdA,
       regA,
     );
@@ -432,33 +477,41 @@ describe("findOutOfRootWriteTargets", () => {
   });
 
   it("blocks copy to a path outside the root", () => {
-    const found = findOutOfRootWriteTargets("copy a.txt C:\\Windows\\Temp\\x.txt", cwdA, regA);
+    const found = findOutOfRootWriteTargets(
+      `copy a.txt "${path.join(tmpRoot, "outside", "x.txt")}"`,
+      cwdA,
+      regA,
+    );
     expect(found.length).toBeGreaterThan(0);
   });
 
   it("blocks mkdir outside the root", () => {
-    const found = findOutOfRootWriteTargets("mkdir D:\\W\\TS\\projB\\newdir", cwdA, regA);
+    const found = findOutOfRootWriteTargets(`mkdir "${path.join(projB, "newdir")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
   });
 
   it("blocks curl -o outside the root", () => {
-    const found = findOutOfRootWriteTargets("curl -o D:\\W\\TS\\projB\\f.zip http://example.com/f.zip", cwdA, regA);
+    const found = findOutOfRootWriteTargets(
+      `curl -o "${path.join(projB, "f.zip")}" http://example.com/f.zip`,
+      cwdA,
+      regA,
+    );
     expect(found.length).toBeGreaterThan(0);
   });
 
   it("allows writes inside a subtree of the registered root", () => {
-    const found = findOutOfRootWriteTargets("mkdir D:\\W\\TS\\projA\\logs", cwdA, regA);
+    const found = findOutOfRootWriteTargets(`mkdir "${path.join(projA, "logs")}"`, cwdA, regA);
     expect(found).toHaveLength(0);
   });
 
   it("blocks mkdir -p with an absolute path outside the root", () => {
-    const found = findOutOfRootWriteTargets("mkdir -p D:\\W\\TS\\projB\\newdir", cwdA, regA);
+    const found = findOutOfRootWriteTargets(`mkdir -p "${path.join(projB, "newdir")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
     expect(found[0]!.target.toLowerCase()).toContain("projb");
   });
 
   it("blocks a redirect without a space before > (echo hi>...)", () => {
-    const found = findOutOfRootWriteTargets("echo hi>D:\\W\\TS\\projB\\out.log", cwdA, regA);
+    const found = findOutOfRootWriteTargets(`echo hi>"${path.join(projB, "out.log")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
     expect(found[0]!.target.toLowerCase()).toContain("projb");
   });
@@ -495,21 +548,44 @@ describe("extractRedirectTargets", () => {
 });
 
 describe("findSuspiciousCrossRootReads", () => {
-  const regA = buildRegistrations(["D:\\W\\TS\\projA"])[0]!;
-  const cwdA = "D:\\W\\TS\\projA";
+  // Real temp tree — Windows literals are relative on POSIX and would be
+  // resolved against the cwd (inside the root) or not matched at all.
+  let tmpRoot: string;
+  let projA: string;
+  let projB: string;
+  let regA: ReturnType<typeof buildRegistrations>[0];
+  let cwdA: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cross-root-test-"));
+    projA = path.join(tmpRoot, "projA");
+    projB = path.join(tmpRoot, "projB");
+    fs.mkdirSync(projA, { recursive: true });
+    fs.mkdirSync(projB, { recursive: true });
+    regA = buildRegistrations([projA])[0]!;
+    cwdA = projA;
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
   it("detects type of a quoted absolute path outside the root", () => {
-    const found = findSuspiciousCrossRootReads("type \"D:\\W\\TS\\projB\\.env\"", cwdA, regA);
+    const found = findSuspiciousCrossRootReads(`type "${path.join(projB, ".env")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
   });
 
   it("does not flag reads inside the root", () => {
-    const found = findSuspiciousCrossRootReads("type \"D:\\W\\TS\\projA\\file.txt\"", cwdA, regA);
+    const found = findSuspiciousCrossRootReads(`type "${path.join(projA, "file.txt")}"`, cwdA, regA);
     expect(found).toHaveLength(0);
   });
 
   it("detects get-content of a path outside the root", () => {
-    const found = findSuspiciousCrossRootReads("Get-Content \"D:\\W\\TS\\projB\\log.txt\"", cwdA, regA);
+    const found = findSuspiciousCrossRootReads(
+      `Get-Content "${path.join(projB, "log.txt")}"`,
+      cwdA,
+      regA,
+    );
     expect(found.length).toBeGreaterThan(0);
   });
 
@@ -524,6 +600,11 @@ describe("findSuspiciousCrossRootReads", () => {
 /** Extract the path from a projects entry (string or { path, name }). */
 function projectPath(p: string | { path: string; name: string }): string {
   return typeof p === "string" ? p : p.path;
+}
+
+/** Platform-neutral "path ends with these segments" check. */
+function endsWithPath(p: string, ...segments: string[]): boolean {
+  return p.toLowerCase().replace(/\\/g, "/").replace(/\/+$/, "").endsWith(segments.join("/"));
 }
 
 describe("findAllowedProjects", () => {
@@ -590,7 +671,9 @@ describe("findAllowedProjects", () => {
 
     // cb is nested under D:\W\TS (two levels below D:\W) — a one-level scan
     // would not find it, but the alias guarantees it appears.
-    const entry = projects.find((p) => typeof p === "object" && p.path.toLowerCase().endsWith("ts\\cb"));
+    const entry = projects.find(
+      (p) => typeof p === "object" && endsWithPath(p.path, "ts", "cb"),
+    );
     expect(entry).toBeDefined();
     if (entry && typeof entry === "object") expect(entry.name).toBe("ZbaľSa");
 
@@ -633,13 +716,19 @@ describe("parseProjectAliases", () => {
 });
 
 describe("findAliasByName / findAliasByPath", () => {
+  // Aliases hold RESOLVED absolute paths (parseProjectAliases resolves them);
+  // findAliasByPath resolves the candidate and compares raw alias paths, so
+  // Windows literals never match on POSIX.
+  const base = path.join(os.tmpdir(), "alias-test");
+  const cbPath = path.join(base, "cb");
+  const zasobyPath = path.join(base, "nase-zasoby");
   const aliases: ProjectAlias[] = [
-    { path: "D:\\W\\TS\\cb", name: "ZbaľSa" },
-    { path: "D:\\W\\TS\\nase-zasoby", name: "Naše zásoby" },
+    { path: cbPath, name: "ZbaľSa" },
+    { path: zasobyPath, name: "Naše zásoby" },
   ];
 
   it("finds an alias by name (case-insensitive)", () => {
-    expect(findAliasByName("zbaľsa", aliases)?.path.toLowerCase()).toContain("ts\\cb");
+    expect(findAliasByName("zbaľsa", aliases)?.path).toBe(cbPath);
     expect(findAliasByName("NAŠE ZÁSOBY", aliases)?.name).toBe("Naše zásoby");
   });
 
@@ -648,11 +737,11 @@ describe("findAliasByName / findAliasByPath", () => {
   });
 
   it("finds an alias by path (case-insensitive)", () => {
-    expect(findAliasByPath("d:\\w\\ts\\CB", aliases)?.name).toBe("ZbaľSa");
+    expect(findAliasByPath(path.join(base, "CB"), aliases)?.name).toBe("ZbaľSa");
   });
 
   it("returns null for unknown paths", () => {
-    expect(findAliasByPath("D:\\Elsewhere", aliases)).toBeNull();
+    expect(findAliasByPath(path.join(base, "elsewhere"), aliases)).toBeNull();
   });
 });
 
@@ -741,11 +830,21 @@ describe("bypass attempts — findEscapeReason", () => {
   });
 });
 describe("findEscapeReason — git -C bypass", () => {
-  const cwd = "D:\\Work\\project";
+  // Real temp dir: findEscapeReason resolves the git path and compares it with
+  // the (raw) cwd via startsWith, so a Windows literal is "outside" on POSIX.
+  let cwd: string;
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), "escape-reason-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
 
   it("allows git -C with path inside cwd (no escape pattern matches)", () => {
     // git -C itself doesn't match any ESCAPE_PATTERNS (they require cd/pushd prefix)
-    expect(findEscapeReason("git -C \"D:\\Work\\project\" status", cwd)).toBeNull();
+    expect(findEscapeReason(`git -C "${cwd}" status`, cwd)).toBeNull();
   });
 
   it("allows git -C with relative path", () => {
@@ -758,11 +857,11 @@ describe("findEscapeReason — git -C bypass", () => {
 
   it("blocks cd .. even in a chain that also has git -C", () => {
     // git -C is fine, but cd .. is an escape — must be blocked
-    expect(findEscapeReason("git -C \"D:\\Work\\project\" status && cd ..", cwd)).not.toBeNull();
+    expect(findEscapeReason(`git -C "${cwd}" status && cd ..`, cwd)).not.toBeNull();
   });
 
   it("allows git --git-dir with path inside cwd", () => {
-    expect(findEscapeReason("git --git-dir \"D:\\Work\\project\\.git\" status", cwd)).toBeNull();
+    expect(findEscapeReason(`git --git-dir "${path.join(cwd, ".git")}" status`, cwd)).toBeNull();
   });
 });
 
