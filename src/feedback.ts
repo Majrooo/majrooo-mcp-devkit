@@ -43,6 +43,14 @@ export interface FeedbackEntry {
 
 export interface FeedbackResult { written: boolean; id: string; filePath: string; reason?: string; }
 export interface FeedbackError { error: string; }
+export interface ReportOptions {
+  /**
+   * Names of the tools this server really exposes. When provided, `input.tool` must
+   * match one of them — otherwise the report is rejected (feedback about another
+   * server's tool cannot be acted on here). Omit to skip validation.
+   */
+  knownTools?: string[];
+}
 export interface CloseResult {
   updated: boolean;
   id: string;
@@ -85,6 +93,29 @@ function stripTrailingSeparator(content: string): string {
   return content.trimEnd().replace(/(^|\n)---$/, "").trimEnd();
 }
 
+/** Levenshtein edit distance — used for "did you mean …?" hints on unknown tool names. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const current: number[] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + cost);
+    }
+    previous = current;
+  }
+  return previous[b.length]!;
+}
+
+/** Known tool names within edit distance 3 of `tool`, closest first. */
+function suggestToolNames(tool: string, known: string[]): string[] {
+  return known
+    .map((name) => ({ name, distance: editDistance(tool.toLowerCase(), name.toLowerCase()) }))
+    .filter((entry) => entry.distance <= 3)
+    .sort((a, b) => a.distance - b.distance)
+    .map((entry) => entry.name);
+}
+
 function formatEntry(entry: FeedbackEntry): string {
   const lines: string[] = [];
   lines.push(`## [${entry.type.toUpperCase().replace("_", " ")}] ${entry.title}`);
@@ -120,8 +151,24 @@ export function reportToolFeedback(
     reproduction?: string;
     expected?: string;
     suggestion?: string;
+    /** Set true to file feedback about a name that is not a tool of this server (default false). */
+    allowUnknownTool?: boolean;
   },
+  options: ReportOptions = {},
 ): FeedbackResult | FeedbackError {
+  const known = options.knownTools ?? [];
+  if (known.length > 0 && !known.includes(input.tool) && input.allowUnknownTool !== true) {
+    const suggestions = suggestToolNames(input.tool, known);
+    const hint = suggestions.length > 0
+      ? `Did you mean ${suggestions.map((name) => `'${name}'`).join(" or ")}?`
+      : `This server exposes: ${known.join(", ")}.`;
+    return {
+      error: `Unknown tool '${input.tool}' — this MCP server does not expose a tool with that name, ` +
+        `so this feedback cannot be acted on here. ${hint} ` +
+        `If the report is really about this server (e.g. a missing capability), re-send it with allowUnknownTool: true.`,
+    };
+  }
+
   const dir = path.join(projectRoot, FEEDBACK_DIR);
   const filePath = path.join(dir, FEEDBACK_FILE);
 
@@ -182,14 +229,15 @@ function readFileOrNull(filePath: string): string | null {
   try { return fs.readFileSync(filePath, "utf-8"); } catch { return null; }
 }
 
-/** Drop trailing blank lines and our own "---" separator from a line range (end exclusive). */
+/** Drop trailing blank lines and separator ("---") lines from a line range (end exclusive). */
 function trimTrailingSeparator(lines: string[], from: number, end: number): number {
-  while (end > from && lines[end - 1]!.trim() === "") end--;
-  if (end > from && lines[end - 1]!.trim() === "---") {
-    end--;
-    while (end > from && lines[end - 1]!.trim() === "") end--;
+  let cursor = end;
+  for (;;) {
+    let changed = false;
+    while (cursor > from && lines[cursor - 1]!.trim() === "") { cursor--; changed = true; }
+    if (cursor > from && lines[cursor - 1]!.trim() === "---") { cursor--; changed = true; }
+    if (!changed) return cursor;
   }
-  return end;
 }
 
 /** Split a feedback log into its preamble (header) and its individual entry blocks. */

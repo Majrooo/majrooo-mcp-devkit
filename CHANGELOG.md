@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `findEscapeReason()`: optional `cwd` parameter — when a command contains both `git -C`/`--git-dir`/`--work-tree` and a cd/pushd escape pattern, the function checks if the git path resolves inside `cwd` before flagging as escape. `safetyCheck()` now passes `cwd` to `findEscapeReason()`.
 - 9 new tests (total 317, up from 308)
 - 6 new tests for explicit `batch_apply_edits` outcome reporting (total 323)
+- `report_tool_feedback`: the reported `tool` name is now validated against this server's tool registry — unknown names are rejected without writing anything, with a "did you mean …?" suggestion for typos (`Unknown tool 'batch_apply_edit' … Did you mean 'batch_apply_edits'?`); when nothing is close, the error lists the tools this server exposes. New optional parameter `allowUnknownTool: true` bypasses the check for missing-capability reports about the server as a whole. Validation runs only when the handler supplies the registry, so the pure function stays usable without one.
 - 8 new tests for the feedback archive (self-healing migration, idempotency, verbatim blocks, archived filters, log hygiene) (total 331)
+- 7 new tests for tool-name validation + legacy log normalization (total 338)
 
 ### Changed
 - `resolveFilePath()` multi-root fallback now triggers even when `cwd` is provided but the file doesn't exist at the resolved location. Scans all allowed roots for the relative path — 1 match auto-resolves, 2+ shows disambiguation error.

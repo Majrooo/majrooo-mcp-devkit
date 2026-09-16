@@ -629,23 +629,26 @@ server.tool(
 
 server.tool(
   "report_tool_feedback",
-  "Report a bug, improvement, or feature request about any MCP tool in this server. " +
+  "Report a bug, improvement, or feature request about a tool of THIS server (see list_tools). " +
   "Writes structured feedback to .mcp/FEEDBACK.md (project-specific, gitignored). " +
+  "Unknown tool names are rejected with a suggestion — set allowUnknownTool:true only when reporting a missing capability of this server. " +
   "Use this when a tool produces unexpected results, crashes, or when you need a new capability. " +
   "Entries are idempotent — duplicate reports are skipped.",
   {
     type: z.enum(["bug", "improvement", "feature_request"]).describe("Type of feedback"),
-    tool: z.string().describe("Name of the MCP tool this feedback is about"),
+    tool: z.string().describe("Name of the MCP tool this feedback is about (must be a tool of this server, e.g. 'batch_apply_edits')"),
     title: z.string().describe("Short summary (1 line)"),
     description: z.string().describe("Detailed description of the issue or request"),
     reproduction: z.string().optional().describe("Steps to reproduce the issue"),
     expected: z.string().optional().describe("What you expected to happen"),
     suggestion: z.string().optional().describe("Your suggestion for a fix or improvement"),
+    allowUnknownTool: z.boolean().optional().describe("File feedback about a name that is not a tool of this server (default false) — use only for missing-capability reports"),
   },
   { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async (input) => {
     const root = ALLOWED_ROOTS[0] ?? process.cwd();
-    const result = reportToolFeedback(root, "majrooo-mcp-devkit", "majrooo-mcp-devkit", getPackageVersion(), input);
+    const knownTools = listToolInfos().map((t) => t.name);
+    const result = reportToolFeedback(root, "majrooo-mcp-devkit", "majrooo-mcp-devkit", getPackageVersion(), input, { knownTools });
     await writeAuditLog({ tool: "report_tool_feedback", type: input.type, reportedTool: input.tool, result: "error" in result ? "error" : result.written ? "written" : "duplicate" });
     return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
   },
@@ -812,15 +815,16 @@ registerToolInfo("verify_refactor_safety", "Semantic diff between old and new co
 );
 
 // Feedback tools
-registerToolInfo("report_tool_feedback", "Report a bug, improvement, or feature request about any MCP tool. Writes structured feedback to .mcp/FEEDBACK.md. Idempotent — duplicate reports are skipped.",
+registerToolInfo("report_tool_feedback", "Report a bug, improvement, or feature request about a tool of THIS server. Writes structured feedback to .mcp/FEEDBACK.md. Unknown tool names are rejected with a suggestion (allowUnknownTool:true for missing-capability reports). Idempotent — duplicate reports are skipped.",
   z.object({
     type: z.enum(["bug", "improvement", "feature_request"]).describe("Type of feedback"),
-    tool: z.string().describe("Name of the MCP tool this feedback is about"),
+    tool: z.string().describe("Name of the MCP tool this feedback is about (must be a tool of this server, e.g. 'batch_apply_edits')"),
     title: z.string().describe("Short summary (1 line)"),
     description: z.string().describe("Detailed description of the issue or request"),
     reproduction: z.string().optional().describe("Steps to reproduce the issue"),
     expected: z.string().optional().describe("What you expected to happen"),
     suggestion: z.string().optional().describe("Your suggestion for a fix or improvement"),
+    allowUnknownTool: z.boolean().optional().describe("File feedback about a name that is not a tool of this server (default false) — use only for missing-capability reports"),
   }),
 );
 registerToolInfo("list_feedback", "List feedback entries from .mcp/FEEDBACK.md. Optionally filter by type, tool name, or status; archived:true reads .mcp/FEEDBACK_ARCHIVE.md (closed entries) instead.",

@@ -295,6 +295,24 @@ describe("feedback archive", () => {
     expect(readFeedbackEntries(tmp)).toHaveLength(2);
   });
 
+  it("normalizes a legacy log with doubled separators when archiving", () => {
+    tmp = tmpDir();
+    writeFeedbackLog(tmp, `${FEEDBACK_HEADER}\n---\n\n---\n${seedBlock("id-closed", "Old bug", "closed")}\n---\n\n---\n`);
+    archiveClosedEntries(tmp);
+    const active = readActiveLog(tmp);
+    expect(active.trimEnd()).toBe(FEEDBACK_HEADER.trimEnd());
+    expect(active).not.toContain("---");
+    // The stray separator also disappears on the next append
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "t", title: "After legacy", description: "d",
+    });
+    if ("error" in r || !r.written) return;
+    const after = readActiveLog(tmp);
+    expect(after).not.toContain("---\n---");
+    expect(after.split("## [").length - 1).toBe(1);
+    expect(readFeedbackEntries(tmp)).toHaveLength(1);
+  });
+
   it("is idempotent — archiving twice does not duplicate entries", () => {
     tmp = tmpDir();
     writeFeedbackLog(tmp, `${FEEDBACK_HEADER}\n---\n${seedBlock("id-closed", "Old bug", "closed")}\n---\n`);
@@ -378,5 +396,80 @@ describe("feedback archive — content preservation", () => {
     expect(readFeedbackEntries(tmp, { archived: true, tool: "batch_apply_edits" })).toHaveLength(1);
     expect(readFeedbackEntries(tmp, { archived: true, status: "open" })).toHaveLength(0);
     expect(readFeedbackEntries(tmp, { archived: true, type: "bug" })[0]!.title).toBe("Bug A");
+  });
+});
+
+describe("report_tool_feedback — tool name validation", () => {
+  let tmp: string;
+  afterEach(() => { if (tmp) { cleanupDir(tmp); tmp = ""; } });
+
+  const KNOWN = ["batch_apply_edits", "list_feedback", "run_safe_command"];
+
+  it("accepts a tool name this server exposes", () => {
+    tmp = tmpDir();
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "batch_apply_edits", title: "Real tool", description: "d",
+    }, { knownTools: KNOWN });
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.written).toBe(true);
+    expect(readFeedbackEntries(tmp)).toHaveLength(1);
+  });
+
+  it("rejects an unknown tool name and writes nothing", () => {
+    tmp = tmpDir();
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "run_commands", title: "Foreign tool", description: "d",
+    }, { knownTools: KNOWN });
+    expect("error" in r).toBe(true);
+    if (!("error" in r)) return;
+    expect(r.error).toContain("Unknown tool 'run_commands'");
+    expect(r.error).toContain("allowUnknownTool: true");
+    // No file, no entry — nothing landed in the log
+    expect(fs.existsSync(path.join(tmp, ".mcp", "FEEDBACK.md"))).toBe(false);
+    expect(readFeedbackEntries(tmp)).toHaveLength(0);
+  });
+
+  it("suggests the closest known tool name for a typo", () => {
+    tmp = tmpDir();
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "batch_apply_edit", title: "Typo", description: "d",
+    }, { knownTools: KNOWN });
+    expect("error" in r).toBe(true);
+    if (!("error" in r)) return;
+    expect(r.error).toContain("Did you mean 'batch_apply_edits'?");
+  });
+
+  it("lists the exposed tools when nothing is close to the given name", () => {
+    tmp = tmpDir();
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "totally_different_name", title: "Far off", description: "d",
+    }, { knownTools: KNOWN });
+    expect("error" in r).toBe(true);
+    if (!("error" in r)) return;
+    expect(r.error).toContain("This server exposes:");
+    expect(r.error).toContain("run_safe_command");
+  });
+
+  it("allowUnknownTool:true bypasses the check (missing-capability reports)", () => {
+    tmp = tmpDir();
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "feature_request", tool: "run_commands", title: "Missing capability", description: "d",
+      allowUnknownTool: true,
+    }, { knownTools: KNOWN });
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.written).toBe(true);
+    expect(readFeedbackEntries(tmp)).toHaveLength(1);
+  });
+
+  it("skips validation when no knownTools are supplied (backwards compatible)", () => {
+    tmp = tmpDir();
+    const r = reportToolFeedback(tmp, "proj", "srv", "1.0.0", {
+      type: "bug", tool: "anything", title: "No registry", description: "d",
+    });
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.written).toBe(true);
   });
 });

@@ -7,7 +7,7 @@
 [![M8ven Verified](https://m8ven.ai/badge/mcp/majrooo-majrooo-mcp-devkit-1o7w0p?variant=verified&v=643cba735869b4d4839f4a2109162cb0)](https://m8ven.ai/mcp/majrooo-majrooo-mcp-devkit-1o7w0p)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.1.1 · **Tests:** 306 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.2.0 · **Tests:** 338 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -182,17 +182,20 @@ Semantic diff between old and new code. Catches accidental deletions before comp
 
 ### `report_tool_feedback`
 
-Report a bug, improvement, or feature request about any MCP tool. Writes structured feedback to `.mcp/FEEDBACK.md` (project-specific, gitignored). Entries are idempotent — duplicate reports are skipped.
+Report a bug, improvement, or feature request about a tool of **this** server (see `list_tools`). Writes structured feedback to `.mcp/FEEDBACK.md` (project-specific, gitignored). Entries are idempotent — duplicate reports are skipped.
+
+The `tool` name is validated against this server's tool registry: an unknown name is rejected (nothing is written) with a "did you mean …?" suggestion, so feedback about another client's built-in tool no longer lands in this log. For a missing-capability report about the server as a whole, pass `allowUnknownTool: true`.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `type` | string | — | `"bug"`, `"improvement"`, or `"feature_request"` |
-| `tool` | string | — | Name of the MCP tool this feedback is about |
+| `tool` | string | — | Name of the MCP tool this feedback is about — must be a tool of this server (e.g. `batch_apply_edits`) |
 | `title` | string | — | Short summary (1 line) |
 | `description` | string | — | Detailed description |
 | `reproduction` | string | — | Steps to reproduce (optional) |
 | `expected` | string | — | What you expected (optional) |
 | `suggestion` | string | — | Suggested fix or improvement (optional) |
+| `allowUnknownTool` | boolean | false | Accept a name that is not a tool of this server (missing-capability reports only) |
 
 ### `list_feedback`
 
