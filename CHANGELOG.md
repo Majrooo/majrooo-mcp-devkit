@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.2.1] - 2026-09-16
+
 ### Added
 - `universal_find_references`: with more than one searched root the report now lists the searched roots, marks the root each file path is relative to (`file.rs  (relative to <root>)`) and states how many duplicate files were skipped — so a path like `project/src/lib.rs` can no longer be mistaken for a second copy of `src/lib.rs`.
 - `universal_find_references`: the audit log entry now records `searchedRoots` and `duplicatesDropped`.
