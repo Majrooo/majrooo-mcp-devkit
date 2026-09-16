@@ -4,6 +4,7 @@ import {
   extractExecFailure,
   formatCapturedOutput,
   formatCommandError,
+  formatZeroMatch,
   textResult,
   jsonResult,
 } from "../format.js";
@@ -158,5 +159,26 @@ describe("jsonResult", () => {
     const text = (result.content[0] as { type: "text"; text: string }).text;
     const parsed = JSON.parse(text);
     expect(parsed.items[0].id).toBe(1);
+  });
+});
+
+// ── run_command_grep zero-match message ─────────────────────
+
+describe("formatZeroMatch", () => {
+  it("states the scanned line count for output without a matching line", () => {
+    expect(formatZeroMatch(245, 0)).toBe(
+      "(žiadna zhoda — 0 z 245 riadkov výstupu, exit code 0)",
+    );
+  });
+
+  it("distinguishes an empty output from a scanned-but-unmatched one", () => {
+    expect(formatZeroMatch(0, 0)).toBe("(žiadna zhoda — výstup prázdny, exit code 0)");
+    expect(formatZeroMatch(0, 1)).toBe("(žiadna zhoda — výstup prázdny, exit code 1)");
+  });
+
+  it("handles an unknown exit status (signal / timeout)", () => {
+    expect(formatZeroMatch(3, null)).toBe(
+      "(žiadna zhoda — 0 z 3 riadkov výstupu, exit code neznámy)",
+    );
   });
 });

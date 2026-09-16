@@ -16,7 +16,7 @@ import {
 } from "./safety.js";
 import { stripAnsi, withUtf8Encoding } from "./output.js";
 import { buildRedirectNote } from "./redirect.js";
-import { composeFailureMessage, extractExecFailure, formatCommandError } from "./format.js";
+import { composeFailureMessage, extractExecFailure, formatCommandError, formatZeroMatch } from "./format.js";
 import { getTempLogPath, parseLines, writeAuditLog } from "./helpers.js";
 
 const execAsync = promisify(exec);
@@ -164,8 +164,14 @@ export async function executeGrep(
   try {
     const { stdout, stderr } = await execAsync(withUtf8Encoding(command), getExecOptions(cwd, timeoutMs));
     const fullOutput = stripAnsi(stdout + (stderr ? `\nSTDERR:\n${stderr}` : ""));
-    const matches = parseLines(fullOutput).filter((line) => regex.test(line));
-    if (matches.length === 0) return { content: [{ type: "text" as const, text: "(žiadna zhoda)" }] };
+    const allLines = parseLines(fullOutput);
+    const matches = allLines.filter((line) => regex.test(line));
+    if (matches.length === 0) {
+      // State what was scanned so a "no match" cannot be read as a lost command
+      // (see formatZeroMatch). The exec promise resolves only on exit code 0.
+      const scanned = allLines.filter((line) => line.trim() !== "").length;
+      return { content: [{ type: "text" as const, text: formatZeroMatch(scanned, 0) }] };
+    }
     return { content: [{ type: "text" as const, text: `Nájdených ${matches.length} zhôd:\n\n${matches.join("\n")}` }] };
   } catch (error: unknown) {
     // Extract stdout/stderr from exec error — the command may have produced
@@ -176,12 +182,16 @@ export async function executeGrep(
     const errErr = errObj.stderr ?? "";
     const combined = stripAnsi(errOutput + (errErr ? `\nSTDERR:\n${errErr}` : ""));
     if (combined.trim()) {
-      const matches = parseLines(combined).filter((line) => regex.test(line));
+      const allLines = parseLines(combined);
+      const matches = allLines.filter((line) => regex.test(line));
       if (matches.length > 0) {
         return { content: [{ type: "text" as const, text: `Nájdených ${matches.length} zhôd:\n\n${matches.join("\n")}` }] };
       }
-      // Has output but no matches — return empty result, not error
-      return { content: [{ type: "text" as const, text: "(žiadna zhoda)" }] };
+      // Has output but no matches — return a zero-match result with the scanned
+      // line count and the exit status, not an error and not a bare "no match".
+      const details = extractExecFailure(error);
+      const scanned = allLines.filter((line) => line.trim() !== "").length;
+      return { content: [{ type: "text" as const, text: formatZeroMatch(scanned, details.exitCode) }] };
     }
     return { content: [{ type: "text" as const, text: `Chyba: ${formatCommandError(error instanceof Error ? error.message : String(error))}` }], isError: true };
   }

@@ -118,6 +118,24 @@ export function formatCapturedOutput(stdout: string, stderr: string, maxLines: n
   return lines.slice(-safeMax).join("\n");
 }
 
+/**
+ * Message for a `run_command_grep` run whose output contained no matching line.
+ *
+ * `(žiadna zhoda)` alone was ambiguous: the same text was returned when N lines
+ * had been scanned and none matched (normal path) and when the command produced
+ * no usable output at all (catch block). A caller could read that as "the tool
+ * lost my output" — or, in a gate check (`clippy`, `npm test`), as "no errors".
+ * Stating the scanned line count and the exit status removes the ambiguity.
+ *
+ * @param scannedLines Non-empty lines that were searched.
+ * @param exitCode     Process exit code, or null when unknown (signal/timeout).
+ */
+export function formatZeroMatch(scannedLines: number, exitCode: number | null): string {
+  const code = exitCode === null ? "exit code neznámy" : `exit code ${exitCode}`;
+  if (scannedLines <= 0) return `(žiadna zhoda — výstup prázdny, ${code})`;
+  return `(žiadna zhoda — 0 z ${scannedLines} riadkov výstupu, ${code})`;
+}
+
 export interface FailureMessageInput {
   /** Raw error message from the exec rejection. */
   rawError: string;
