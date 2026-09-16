@@ -203,15 +203,25 @@ List feedback entries from `.mcp/FEEDBACK.md`. Optionally filter by type, tool n
 | `type` | string | — | Filter: `"bug"`, `"improvement"`, or `"feature_request"` |
 | `tool` | string | — | Filter by tool name |
 | `status` | string | — | Filter: `"open"` or `"closed"` |
+| `archived` | boolean | false | `true` = read `.mcp/FEEDBACK_ARCHIVE.md` (closed entries moved out of the active log) instead |
 
 ### `close_feedback`
 
 Close an existing feedback entry by ID — sets status to `"closed"` and optionally adds resolution text. Use this to mark feedback items as resolved after fixing them.
 
+Closing also **moves every closed entry out of the active log** into `.mcp/FEEDBACK_ARCHIVE.md`, so `FEEDBACK.md` keeps holding only open items and stays small. The move is append-first (archived before removed) and idempotent, and it self-heals: entries closed before this behaviour existed are migrated along with the next close. Read them back with `list_feedback` + `archived: true`.
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `id` | string | — | The feedback entry ID to close (from `list_feedback` output) |
 | `resolution` | string | — | Resolution note explaining how the issue was addressed (optional) |
+
+Closed entries are stored in two files:
+
+| File | Contents |
+|---|---|
+| `.mcp/FEEDBACK.md` | Header + open entries (the active log) |
+| `.mcp/FEEDBACK_ARCHIVE.md` | Header + closed entries, moved verbatim (description, reproduction, resolution, `closedAt` preserved) |
 
 ### `list_tools`
 

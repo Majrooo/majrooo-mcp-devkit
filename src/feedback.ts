@@ -22,6 +22,8 @@ import path from "path";
 const HEADER_MARKER = "<!-- project=";
 const FEEDBACK_DIR = ".mcp";
 const FEEDBACK_FILE = "FEEDBACK.md";
+const ARCHIVE_FILE = "FEEDBACK_ARCHIVE.md";
+const ARCHIVE_TITLE = "# MCP Tool Feedback Archive";
 const SEPARATOR = "\n---\n";
 
 export interface FeedbackEntry {
@@ -41,7 +43,24 @@ export interface FeedbackEntry {
 
 export interface FeedbackResult { written: boolean; id: string; filePath: string; reason?: string; }
 export interface FeedbackError { error: string; }
-export interface CloseResult { updated: boolean; id: string; filePath: string; }
+export interface CloseResult {
+  updated: boolean;
+  id: string;
+  filePath: string;
+  /** IDs moved from FEEDBACK.md to FEEDBACK_ARCHIVE.md by this call (self-healing). */
+  archived: string[];
+  archivePath: string;
+}
+export interface ArchiveResult {
+  /** Number of entries moved to the archive in this call. */
+  archived: number;
+  /** IDs of the entries moved in this call. */
+  ids: string[];
+  /** The archive file (.mcp/FEEDBACK_ARCHIVE.md). */
+  filePath: string;
+  /** The active log the entries were moved out of (.mcp/FEEDBACK.md). */
+  sourcePath: string;
+}
 
 function buildHeader(project: string, server: string, version: string): string {
   return `<!-- project=${project} server=${server} v${version} -->`;
@@ -59,6 +78,11 @@ function generateId(tool: string, title: string): string {
 
 function isDuplicate(content: string, id: string): boolean {
   return content.includes(`> **id:** ${id}`);
+}
+
+/** Remove a trailing "---" separator (plus surrounding blank lines) left by a previous write. */
+function stripTrailingSeparator(content: string): string {
+  return content.trimEnd().replace(/(^|\n)---$/, "").trimEnd();
 }
 
 function formatEntry(entry: FeedbackEntry): string {
@@ -129,7 +153,8 @@ export function reportToolFeedback(
     const header = `# MCP Tool Feedback Log\n${buildHeader(project, serverName, serverVersion)}\n<!-- DO NOT EDIT manually — managed by report_tool_feedback tool -->\n`;
     content = header + SEPARATOR + entryText + SEPARATOR;
   } else {
-    content = content.trimEnd() + SEPARATOR + entryText + SEPARATOR;
+    // Drop a trailing separator first — otherwise every append leaves one more "---" behind.
+    content = stripTrailingSeparator(content) + SEPARATOR + entryText + SEPARATOR;
   }
 
   try { fs.writeFileSync(filePath, content, "utf-8"); } catch {
@@ -139,14 +164,119 @@ export function reportToolFeedback(
   return { written: true, id, filePath };
 }
 
+// ── Feedback archive (.mcp/FEEDBACK_ARCHIVE.md) ─────────────
+// Closed entries are moved out of the active log so FEEDBACK.md stays small and
+// readable. The archive is append-first: a block is written to the archive before it
+// is removed from FEEDBACK.md, so a crash can at worst leave a duplicate, never lose
+// an entry.
+
+function activeFeedbackPath(projectRoot: string): string {
+  return path.join(projectRoot, FEEDBACK_DIR, FEEDBACK_FILE);
+}
+
+function feedbackArchivePath(projectRoot: string): string {
+  return path.join(projectRoot, FEEDBACK_DIR, ARCHIVE_FILE);
+}
+
+function readFileOrNull(filePath: string): string | null {
+  try { return fs.readFileSync(filePath, "utf-8"); } catch { return null; }
+}
+
+/** Drop trailing blank lines and our own "---" separator from a line range (end exclusive). */
+function trimTrailingSeparator(lines: string[], from: number, end: number): number {
+  while (end > from && lines[end - 1]!.trim() === "") end--;
+  if (end > from && lines[end - 1]!.trim() === "---") {
+    end--;
+    while (end > from && lines[end - 1]!.trim() === "") end--;
+  }
+  return end;
+}
+
+/** Split a feedback log into its preamble (header) and its individual entry blocks. */
+function splitFeedbackBlocks(content: string): { preamble: string; blocks: string[] } {
+  const lines = content.split(/\r?\n/);
+  const starts: number[] = [];
+  for (let i = 0; i < lines.length; i++) if (lines[i]!.startsWith("## [")) starts.push(i);
+  if (starts.length === 0) return { preamble: content.trimEnd(), blocks: [] };
+  const preamble = lines.slice(0, trimTrailingSeparator(lines, 0, starts[0]!)).join("\n");
+  const blocks: string[] = [];
+  for (let b = 0; b < starts.length; b++) {
+    const from = starts[b]!;
+    const to = b + 1 < starts.length ? starts[b + 1]! : lines.length;
+    // Keep the block itself verbatim, drop only the separator we insert between blocks.
+    blocks.push(lines.slice(from, trimTrailingSeparator(lines, from, to)).join("\n"));
+  }
+  return { preamble, blocks };
+}
+
+function isClosedBlock(block: string): boolean {
+  return /^> \*\*status:\*\* closed\s*$/m.test(block);
+}
+
+function blockId(block: string): string {
+  return (block.match(/^> \*\*id:\*\* (.+)$/m) ?? [])[1]?.trim() ?? "";
+}
+
+function headerCommentOf(preamble: string, fallback: string): string {
+  return (preamble.match(/^<!-- project=.*-->$/m) ?? [fallback])[0]!;
+}
+
+/**
+ * Move every closed entry from .mcp/FEEDBACK.md into .mcp/FEEDBACK_ARCHIVE.md.
+ * Self-healing: it archives all closed entries currently in the active log, so a
+ * single call also migrates entries closed before this feature existed.
+ * Idempotent — entries already in the archive are skipped, never duplicated.
+ */
+export function archiveClosedEntries(projectRoot: string): ArchiveResult | FeedbackError {
+  const sourcePath = activeFeedbackPath(projectRoot);
+  const archivePath = feedbackArchivePath(projectRoot);
+  const content = readFileOrNull(sourcePath);
+  if (content === null) return { error: `Feedback file not found: ${sourcePath}` };
+
+  const { preamble, blocks } = splitFeedbackBlocks(content);
+  const closedBlocks = blocks.filter(isClosedBlock);
+  if (closedBlocks.length === 0) return { archived: 0, ids: [], filePath: archivePath, sourcePath };
+
+  let archive = readFileOrNull(archivePath);
+  if (archive === null) {
+    archive = `${ARCHIVE_TITLE}\n${headerCommentOf(preamble, "<!-- project=unknown -->")}\n` +
+      `<!-- Closed entries moved out of FEEDBACK.md — managed by close_feedback tool -->\n`;
+  }
+
+  const moved: string[] = [];
+  for (const block of closedBlocks) {
+    const id = blockId(block);
+    if (id && archive.includes(`> **id:** ${id}`)) continue;
+    archive = archive.trimEnd() + SEPARATOR + block + SEPARATOR;
+    moved.push(id);
+  }
+  if (moved.length === 0) return { archived: 0, ids: [], filePath: archivePath, sourcePath };
+
+  try {
+    fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+    fs.writeFileSync(archivePath, archive, "utf-8");
+  } catch {
+    return { error: `Cannot write archive: ${archivePath}` };
+  }
+
+  const remaining = blocks.filter((block) => !(isClosedBlock(block) && moved.includes(blockId(block))));
+  const body = remaining.length > 0 ? `${SEPARATOR}${remaining.join(SEPARATOR)}${SEPARATOR}` : "\n";
+  try { fs.writeFileSync(sourcePath, `${preamble}\n${body}`, "utf-8"); } catch {
+    return { error: `Entries archived to ${archivePath}, but cannot update ${sourcePath}` };
+  }
+  return { archived: moved.length, ids: moved, filePath: archivePath, sourcePath };
+}
+
 export interface FeedbackListOptions {
   type?: "bug" | "improvement" | "feature_request";
   tool?: string;
   status?: "open" | "closed";
+  /** true = read .mcp/FEEDBACK_ARCHIVE.md (entries moved out of the active log) instead of .mcp/FEEDBACK.md. */
+  archived?: boolean;
 }
 
 export function readFeedbackEntries(projectRoot: string, options: FeedbackListOptions = {}): FeedbackEntry[] {
-  const filePath = path.join(projectRoot, FEEDBACK_DIR, FEEDBACK_FILE);
+  const filePath = options.archived ? feedbackArchivePath(projectRoot) : activeFeedbackPath(projectRoot);
   let content: string;
   try { content = fs.readFileSync(filePath, "utf-8"); } catch { return []; }
   const entries: FeedbackEntry[] = [];
@@ -174,7 +304,9 @@ export function readFeedbackEntries(projectRoot: string, options: FeedbackListOp
 }
 
 /**
- * Close an existing feedback entry by ID — sets status to "closed" and optionally adds resolution text.
+ * Close an existing feedback entry by ID — sets status to "closed", optionally adds
+ * resolution text, then moves all closed entries out of the active log into
+ * .mcp/FEEDBACK_ARCHIVE.md (so FEEDBACK.md keeps holding open items only).
  * Returns error if the entry is not found or already closed.
  */
 export function closeFeedback(
@@ -182,13 +314,18 @@ export function closeFeedback(
   id: string,
   resolution?: string,
 ): CloseResult | FeedbackError {
-  const filePath = path.join(projectRoot, FEEDBACK_DIR, FEEDBACK_FILE);
+  const filePath = activeFeedbackPath(projectRoot);
   let content: string;
   try { content = fs.readFileSync(filePath, "utf-8"); } catch {
     return { error: `Feedback file not found: ${filePath}` };
   }
   const idMarker = `> **id:** ${id}`;
   if (!content.includes(idMarker)) {
+    const archivePath = feedbackArchivePath(projectRoot);
+    const archived = readFileOrNull(archivePath);
+    if (archived && archived.includes(idMarker)) {
+      return { error: `Entry '${id}' is already closed (archived in ${ARCHIVE_FILE})` };
+    }
     return { error: `Entry with id '${id}' not found` };
   }
 
@@ -216,5 +353,13 @@ export function closeFeedback(
   try { fs.writeFileSync(filePath, newContent, "utf-8"); } catch {
     return { error: `Cannot write to: ${filePath}` };
   }
-  return { updated: true, id, filePath };
+  // Move every closed entry (this one plus any leftovers) out of the active log.
+  const archiveResult = archiveClosedEntries(projectRoot);
+  return {
+    updated: true,
+    id,
+    filePath,
+    archived: "error" in archiveResult ? [] : archiveResult.ids,
+    archivePath: feedbackArchivePath(projectRoot),
+  };
 }

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `close_feedback`: closing an entry now also moves **every closed entry** out of the active log into `.mcp/FEEDBACK_ARCHIVE.md`, so `.mcp/FEEDBACK.md` keeps holding open items only (it had grown to 39 entries / 65 KB). The move is append-first (block written to the archive before it is removed from the log, so a crash can at most duplicate, never lose an entry), idempotent (entries already archived are skipped) and self-healing (entries closed before this feature are migrated with the next close). `close_feedback` returns `archived` (IDs moved) and `archivePath`.
+- `list_feedback`: new `archived` parameter — `true` lists `.mcp/FEEDBACK_ARCHIVE.md` (closed entries) instead of the active log; all existing filters (`type`, `tool`, `status`) apply to the archive too.
+- `archiveClosedEntries()` (`src/feedback.ts`) — bulk-migrates closed entries from the active log to the archive; also reused by `close_feedback`.
 - `batch_apply_edits`: explicit machine-readable outcome — every response now carries `message` (human summary), `appliedEdits` (edits whose changes are on disk), `written` (files changed on disk) and `applied: true|false` on each `preview` entry. Failure responses additionally carry `reason` (`validation_failed` | `write_failed`), `reverted` (files rolled back) and `nothingWritten`. A validation failure now says plainly `VALIDATION FAILED on edit #N of M — NO edits were written to disk` instead of returning a preview that looks like a partial success; when writes did happen but were all rolled back it says `NO net changes were left on disk: N edit(s) had been written and M file(s) were rolled back […]`. The MCP tool result is the message followed by the JSON payload.
 - `batch_apply_edits`: preview is padded to map 1:1 to the `edits` array — edits that were never reached get an `action: "error"` entry with `not evaluated — batch stopped at edit #N`.
 - `batch_apply_edits`: `excludePatterns` parameter — when `replaceAll` is used with `excludePatterns`, occurrences inside excluded regions (e.g. `#[cfg(test)]` blocks) are skipped. Handles annotation-on-separate-line with 5-line lookahead for opening brace.
@@ -15,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `findEscapeReason()`: optional `cwd` parameter — when a command contains both `git -C`/`--git-dir`/`--work-tree` and a cd/pushd escape pattern, the function checks if the git path resolves inside `cwd` before flagging as escape. `safetyCheck()` now passes `cwd` to `findEscapeReason()`.
 - 9 new tests (total 317, up from 308)
 - 6 new tests for explicit `batch_apply_edits` outcome reporting (total 323)
+- 8 new tests for the feedback archive (self-healing migration, idempotency, verbatim blocks, archived filters, log hygiene) (total 331)
 
 ### Changed
 - `resolveFilePath()` multi-root fallback now triggers even when `cwd` is provided but the file doesn't exist at the resolved location. Scans all allowed roots for the relative path — 1 match auto-resolves, 2+ shows disambiguation error.
@@ -30,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `run_command_grep`: zero matches with non-zero exit code now returns empty result instead of error.
 - `batch_apply_edits`: validation-failure response was ambiguous — the returned `preview` showed `action: "edit", matchCount: 1` for edits that had validated while no edit was written at all, so callers could not tell that the batch was a complete no-op. The response now states `VALIDATION FAILED on edit #N of M — NO edits were written to disk` plus machine-readable `appliedEdits`, `written`, `reverted`, `nothingWritten` and per-entry `applied`.
 - `extract_code_block`: relative paths now resolve across all allowed roots even when `cwd` is provided.
+- `report_tool_feedback`: appending an entry no longer stacks `---` separators — a trailing separator left by the previous write is removed first, so the log keeps exactly one separator between entries (`.mcp/FEEDBACK.md` had accumulated doubled separators over time).
+- `close_feedback` / `archiveClosedEntries()`: rewriting the active log after an archive no longer leaves a doubled separator and extra blank lines between the header and the first entry.
 
 ### Known Limitations (documented)
 - `batch_apply_edits`: same-file chain failures revert the entire file (can't partially undo changes to a single file).

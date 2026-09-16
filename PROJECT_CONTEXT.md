@@ -23,7 +23,7 @@
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
 * **Language support:** Refactoring tools (`universal_find_references`, `split_file_by_declarations`, `generate_module_skeleton`, `verify_refactor_safety`) support Rust, TypeScript, Python, and C++ (`generate_module_skeleton` supports Rust, TypeScript, Python only). Rust is fully tested in production; others are structurally supported but untested. `extract_code_block` and `batch_apply_edits` are language-agnostic.
-* **Testing:** Vitest — `npm test` (323 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Testing:** Vitest — `npm test` (330 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
   * `src/` — TypeScript sources (`index.ts`, `commands.ts`, `helpers.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)
@@ -44,8 +44,8 @@
 11. `generate_module_skeleton` — generate a new module file with extracted symbols from a source file (unknown symbols error, dryRun default, `cwd` for relative paths).
 12. `verify_refactor_safety` — semantic diff between old and new code; catches accidental deletions (function count, signatures, exports, imports, comment ratio).
 13. `report_tool_feedback` — report bugs, improvements, or feature requests about any MCP tool (writes to `.mcp/FEEDBACK.md`, idempotent, project-protected).
-14. `list_feedback` — list feedback entries with optional filters (type, tool, status).
-15. `close_feedback` — close a feedback entry by ID, set status to "closed" with optional resolution text.
+14. `list_feedback` — list feedback entries with optional filters (type, tool, status); `archived: true` lists closed entries from `.mcp/FEEDBACK_ARCHIVE.md` instead of the active log.
+15. `close_feedback` — close a feedback entry by ID, set status to "closed" with optional resolution text; closed entries are moved out of `.mcp/FEEDBACK.md` into `.mcp/FEEDBACK_ARCHIVE.md` (append-first, idempotent, self-healing).
 16. `list_tools` — list all available MCP tools with descriptions, filterable by category (command/refactoring/feedback).
 17. `help_tool` — get detailed help for any tool: parameters, types, defaults, description.
 

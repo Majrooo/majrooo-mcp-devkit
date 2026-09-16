@@ -655,12 +655,14 @@ server.tool(
 
 server.tool(
   "list_feedback",
-  "List feedback entries from .mcp/FEEDBACK.md. Optionally filter by type, tool name, or status. " +
+  "List feedback entries from .mcp/FEEDBACK.md (open entries; closed ones are moved to .mcp/FEEDBACK_ARCHIVE.md). " +
+  "Optionally filter by type, tool name, or status — pass archived:true to read the archive of closed entries instead. " +
   "Use this to check existing feedback before creating new entries, or to review reported issues.",
   {
     type: z.enum(["bug", "improvement", "feature_request"]).optional().describe("Filter by feedback type"),
     tool: z.string().optional().describe("Filter by tool name"),
     status: z.enum(["open", "closed"]).optional().describe("Filter by status"),
+    archived: z.boolean().optional().describe("true = list archived (closed) entries from .mcp/FEEDBACK_ARCHIVE.md instead of the active log"),
   },
   { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async (filters) => {
@@ -678,6 +680,7 @@ server.tool(
 server.tool(
   "close_feedback",
   "Close an existing feedback entry by ID — sets status to \"closed\" and optionally adds resolution text. " +
+  "Closed entries are automatically moved out of .mcp/FEEDBACK.md into .mcp/FEEDBACK_ARCHIVE.md (read them with list_feedback archived:true). " +
   "Use this to mark feedback items as resolved after fixing them.",
   {
     id: z.string().describe("The feedback entry ID to close (from list_feedback output)"),
@@ -820,14 +823,15 @@ registerToolInfo("report_tool_feedback", "Report a bug, improvement, or feature 
     suggestion: z.string().optional().describe("Your suggestion for a fix or improvement"),
   }),
 );
-registerToolInfo("list_feedback", "List feedback entries from .mcp/FEEDBACK.md. Optionally filter by type, tool name, or status.",
+registerToolInfo("list_feedback", "List feedback entries from .mcp/FEEDBACK.md. Optionally filter by type, tool name, or status; archived:true reads .mcp/FEEDBACK_ARCHIVE.md (closed entries) instead.",
   z.object({
     type: z.enum(["bug", "improvement", "feature_request"]).optional().describe("Filter by feedback type"),
     tool: z.string().optional().describe("Filter by tool name"),
     status: z.enum(["open", "closed"]).optional().describe("Filter by status"),
+    archived: z.boolean().optional().describe("true = list archived (closed) entries from .mcp/FEEDBACK_ARCHIVE.md instead of the active log"),
   }),
 );
-registerToolInfo("close_feedback", "Close an existing feedback entry by ID — sets status to 'closed' and optionally adds resolution text.",
+registerToolInfo("close_feedback", "Close an existing feedback entry by ID — sets status to 'closed', optionally adds resolution text, and moves closed entries into .mcp/FEEDBACK_ARCHIVE.md.",
   z.object({
     id: z.string().describe("The feedback entry ID to close (from list_feedback output)"),
     resolution: z.string().optional().describe("Resolution note explaining how the issue was addressed"),
