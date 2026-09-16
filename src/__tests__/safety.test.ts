@@ -467,10 +467,7 @@ describe("findOutOfRootWriteTargets", () => {
     expect(found).toHaveLength(0);
   });
 
-  // Windows-only by design until the heuristics handle POSIX (see CHANGELOG
-  // "Known Limitations"): isFlag() treats a leading "/x" as a cmd flag, so an
-  // absolute POSIX path is never extracted as a mkdir/copy/move target.
-  it.skipIf(process.platform !== "win32")("blocks copy to a path outside the root", () => {
+  it("blocks copy to a path outside the root", () => {
     const found = findOutOfRootWriteTargets(
       `copy a.txt "${path.join(tmpRoot, "outside", "x.txt")}"`,
       cwdA,
@@ -479,7 +476,7 @@ describe("findOutOfRootWriteTargets", () => {
     expect(found.length).toBeGreaterThan(0);
   });
 
-  it.skipIf(process.platform !== "win32")("blocks mkdir outside the root", () => {
+  it("blocks mkdir outside the root", () => {
     const found = findOutOfRootWriteTargets(`mkdir "${path.join(projB, "newdir")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
   });
@@ -498,7 +495,7 @@ describe("findOutOfRootWriteTargets", () => {
     expect(found).toHaveLength(0);
   });
 
-  it.skipIf(process.platform !== "win32")("blocks mkdir -p with an absolute path outside the root", () => {
+  it("blocks mkdir -p with an absolute path outside the root", () => {
     const found = findOutOfRootWriteTargets(`mkdir -p "${path.join(projB, "newdir")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
     expect(found[0]!.target.toLowerCase()).toContain("projb");
@@ -513,6 +510,23 @@ describe("findOutOfRootWriteTargets", () => {
   it("allows a redirect without a space before > inside the root", () => {
     const found = findOutOfRootWriteTargets("echo hi>out.log", cwdA, regA);
     expect(found).toHaveLength(0);
+  });
+
+  it("blocks a mkdir target at the filesystem root (absolute path, any platform shape)", () => {
+    // Regression for the POSIX gap: isFlag() used to treat EVERY leading "/x"
+    // token as a cmd flag, so an absolute POSIX path was never extracted as a
+    // target and this check silently passed on Linux/macOS.
+    const outside = path.join(path.parse(cwdA).root, "outside-all-roots");
+    const found = findOutOfRootWriteTargets(`mkdir "${outside}"`, cwdA, regA);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found[0]!.target.toLowerCase()).toContain("outside-all-roots");
+  });
+
+  it("blocks a copy destination at the filesystem root", () => {
+    const outside = path.join(path.parse(cwdA).root, "outside-copy.txt");
+    const found = findOutOfRootWriteTargets(`copy a.txt "${outside}"`, cwdA, regA);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found[0]!.target.toLowerCase()).toContain("outside-copy");
   });
 });
 
@@ -564,9 +578,7 @@ describe("findSuspiciousCrossRootReads", () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  // Windows-only until QUOTED_PATH matches POSIX absolute paths (CHANGELOG
-  // "Known Limitations"): the cross-root read check only sees C:\, ../ and ~/.
-  it.skipIf(process.platform !== "win32")("detects type of a quoted absolute path outside the root", () => {
+  it("detects type of a quoted absolute path outside the root", () => {
     const found = findSuspiciousCrossRootReads(`type "${path.join(projB, ".env")}"`, cwdA, regA);
     expect(found.length).toBeGreaterThan(0);
   });
@@ -576,7 +588,7 @@ describe("findSuspiciousCrossRootReads", () => {
     expect(found).toHaveLength(0);
   });
 
-  it.skipIf(process.platform !== "win32")("detects get-content of a path outside the root", () => {
+  it("detects get-content of a path outside the root", () => {
     const found = findSuspiciousCrossRootReads(
       `Get-Content "${path.join(projB, "log.txt")}"`,
       cwdA,
@@ -588,6 +600,14 @@ describe("findSuspiciousCrossRootReads", () => {
   it("does not flag plain commands without absolute paths", () => {
     const found = findSuspiciousCrossRootReads("npm test", cwdA, regA);
     expect(found).toHaveLength(0);
+  });
+
+  it("detects a quoted absolute read at the filesystem root (any platform shape)", () => {
+    // Regression for the POSIX gap: QUOTED_PATH only matched C:\, ../ and ~/,
+    // so quoted absolute POSIX reads were invisible on Linux/macOS.
+    const outside = path.join(path.parse(cwdA).root, "outside-all-roots.env");
+    const found = findSuspiciousCrossRootReads(`type "${outside}"`, cwdA, regA);
+    expect(found.length).toBeGreaterThan(0);
   });
 });
 

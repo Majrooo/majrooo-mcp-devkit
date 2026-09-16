@@ -583,8 +583,19 @@ export function isWithinAllowedDir(command: string): boolean {
 
 // ── Write-target detection (best-effort) ───────────────────
 
+/**
+ * Is this token a command flag rather than a path?
+ *
+ * `-x` / `--long` are universal; the `/x` form exists only for cmd built-ins
+ * (`rmdir /s`, `del /f`, `xcopy /e`, ...). The length anchor matters: on POSIX
+ * every absolute path starts with `/<letter>`, so an unanchored `^\/[a-z]` test
+ * made `/tmp/proj/out.log` look like a flag and silently disabled the
+ * write-target check (`mkdir`, `copy`, `move`, `tee`) on Linux/macOS.
+ * Known residual: a 1–2 letter directory directly under the filesystem root
+ * (`/a`) is still read as a flag.
+ */
 function isFlag(tok: string): boolean {
-  return tok.startsWith("-") || /^\/[a-z]/i.test(tok);
+  return tok.startsWith("-") || /^\/[a-z]{1,2}$/i.test(tok);
 }
 
 function lastNonFlag(tokens: string[]): string | undefined {
@@ -764,7 +775,11 @@ export function findOutOfRootWriteTargets(
 // ── Cross-root read detection (opt-in, best-effort) ────────
 
 const READ_TOOLS = /\b(cat|type|more|less|findstr|Get-Content|Select-String|grep|egrep|head|tail|strings|wc|diff|fc)\b/i;
-const QUOTED_PATH = /["']((?:[A-Za-z]:[\\/]|\.\.[\\/]|~[\\/])\S*?)["']/g;
+// Quoted path forms worth checking: Windows drive (`C:\x`), parent-relative
+// (`../x`), home-relative (`~/x`) and POSIX absolute (`/etc`, `/etc/passwd`).
+// A quoted token is a path, never a cmd flag — so POSIX paths need no segment
+// minimum (an unanchored flag-ish `/s` is only ever written unquoted).
+const QUOTED_PATH = /["']((?:[A-Za-z]:[\\/]|\.\.[\\/]|~[\\/]|(?:\/[^\/\s"']+)+)\S*?)["']/g;
 
 /**
  * Find obvious reads outside the active project root.
