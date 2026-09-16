@@ -521,7 +521,9 @@ server.tool(
 server.tool(
   "batch_apply_edits",
   "Apply multiple file edits with partial rollback on failure. " +
-  "Validates all edits first — on failure, only the failed edit and later edits are reverted; earlier successful edits are preserved. " +
+  "Validates all edits first — if validation fails, response says explicitly how many edits were applied and which files were written/reverted (NO files are modified). " +
+  "On failure during application, only the failed edit and later edits are reverted; earlier successful edits are preserved. " +
+  "Every response includes `message`, `appliedEdits`, `written`, and per-preview-entry `applied`. " +
   "Use dryRun: true (default) to preview changes.",
   {
     edits: z.array(z.object({
@@ -548,7 +550,7 @@ server.tool(
     }
     const result = batchApplyEdits(resolvedEdits, { dryRun });
     await writeAuditLog({ tool: "batch_apply_edits", totalEdits: edits.length, dryRun: dryRun ?? true });
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    return { content: [{ type: "text" as const, text: `${result.message}\n\n${JSON.stringify(result, null, 2)}` }] };
   },
 );
 
@@ -773,7 +775,7 @@ registerToolInfo("split_file_by_declarations", "Split a large file into multiple
     overwrite: z.boolean().optional().describe("Allow overwriting existing target files (default: false)"),
   }),
 );
-registerToolInfo("batch_apply_edits", "Apply multiple file edits with partial rollback on failure. Validates all edits first — on failure, only files modified by the failed edit and later edits are reverted; earlier successful edits are preserved. Use dryRun: true (default) to preview.",
+registerToolInfo("batch_apply_edits", "Apply multiple file edits with partial rollback on failure. Validates all edits first — on failure the response states explicitly how many edits were applied and which files were written/reverted (validation failure = NO files modified). Every response includes message, appliedEdits, written and per-preview-entry applied. Use dryRun: true (default) to preview.",
   z.object({
     edits: z.array(z.object({
       file: z.string().describe("File path inside allowed root"),

@@ -122,6 +122,40 @@ Apply multiple file edits with partial rollback on failure. Validates all edits 
 | `dryRun` | boolean | true | Preview all changes without writing |
 | `cwd` | string | primary root | Working dir for resolving relative file paths |
 
+#### Response (explicit outcome)
+
+The result text starts with a one-line `message` followed by the JSON payload:
+
+```json
+{
+  "dryRun": false,
+  "totalEdits": 3,
+  "validated": 3,
+  "appliedEdits": 2,
+  "written": ["D:\\proj\\a.rs", "D:\\proj\\b.rs"],
+  "message": "Applied 2 of 2 edit(s) to 2 file(s) — all changes are on disk.",
+  "preview": [{ "file": "D:\\proj\\a.rs", "action": "edit", "matchCount": 1, "applied": true }]
+}
+```
+
+Key fields:
+
+| Field | Meaning |
+|---|---|
+| `message` | Human-readable summary — always states explicitly whether anything was written |
+| `appliedEdits` | Number of edits whose changes are on disk after the run (`0` in dry-run, `0` when nothing was written) |
+| `written` | Files changed on disk after the run (empty in dry-run / when nothing was written) |
+| `preview[].applied` | `true` only when that specific edit's change is on disk (never `true` in dry-run or after rollback) |
+| `preview[].matchCount` | Occurrences found — informational, **not** proof that anything was written (check `applied`) |
+
+On failure the response also carries `error`, `failedAt`, `reason` (`validation_failed` \| `write_failed`), `reverted` (files rolled back) and `nothingWritten` (`true` = this run left no change on disk at all). Validation failure example:
+
+```
+VALIDATION FAILED on edit #2 of 3 — NO edits were written to disk (validation-first: nothing is written until every edit validates). Reason: search string not found in D:\proj\b.rs
+```
+
+Edits that were never evaluated get an explicit `action: "error"` preview entry (`not evaluated — batch stopped at edit #N`), so `preview` always maps 1:1 to the `edits` array. When validation fails on a file that already had a successfully applied edit in the same run (chained edits), the response switches to `partial rollback: N edit(s) kept in … ; M file(s) reverted […]`.
+
 ### `generate_module_skeleton`
 
 Generate a new module file with extracted symbols from a source file. Returns error with `unknownSymbols` list if any symbols are not found.

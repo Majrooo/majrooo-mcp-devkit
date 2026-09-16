@@ -34,6 +34,8 @@ export interface PreviewEntry {
   action: "edit" | "error";
   description?: string;
   matchCount: number;
+  /** true only when this edit's change is on disk after the run (never true in dry-run or after rollback). */
+  applied: boolean;
   error?: string;
 }
 
@@ -41,12 +43,30 @@ export interface BatchResult {
   dryRun: boolean;
   totalEdits: number;
   validated: number;
+  /** Number of edits whose changes are on disk after the run (0 in dry-run). */
+  appliedEdits: number;
+  /** Files changed on disk after the run (empty in dry-run). */
+  written: string[];
+  /** Human-readable summary — always states explicitly whether anything was written. */
+  message: string;
   preview: PreviewEntry[];
 }
 
 export interface BatchError {
   error: string;
   failedAt: number;
+  /** Machine-readable failure class: pre-write validation or a write/IO error. */
+  reason: "validation_failed" | "write_failed";
+  /** Human-readable summary — states explicitly "NO edits were written" when nothing reached the disk. */
+  message: string;
+  /** Number of edits whose changes remained on disk (partial rollback keeps earlier files). */
+  appliedEdits: number;
+  /** Files left changed on disk after rollback (empty when nothingWritten is true). */
+  written: string[];
+  /** Files rolled back to their original content. */
+  reverted: string[];
+  /** true = this run left no change on disk at all. */
+  nothingWritten: boolean;
   preview: PreviewEntry[];
 }
 
@@ -63,6 +83,95 @@ function restoreLineEndings(text: string, eol: string): string {
   return text;
 }
 
+/** Preview entry for an edit that passed validation — nothing is on disk yet. */
+function pendingEntry(file: string, matchCount: number, description?: string): PreviewEntry {
+  return { file, action: "edit", matchCount, applied: false, description };
+}
+
+/** Preview entry for a failed (or not evaluated) edit. */
+function errorEntry(file: string, matchCount: number, error: string, description?: string): PreviewEntry {
+  return { file, action: "error", matchCount, applied: false, error, description };
+}
+
+/**
+ * Pad the preview with explicit "not evaluated" entries so it always maps 1:1
+ * to the edits array — a shorter preview used to look like "the rest succeeded".
+ */
+function padPreview(preview: PreviewEntry[], edits: EditObject[], from: number, reason: string): void {
+  for (let j = from; j < edits.length; j++) {
+    const e = edits[j]!;
+    preview.push(errorEntry(e.file, 0, reason, e.description));
+  }
+}
+
+/** Files to revert when the edit at `failedAt` fails: the failed file plus every file targeted by a later edit. */
+function rollbackTargets(failedAt: number, edits: EditObject[]): Set<string> {
+  const failedFile = edits[failedAt]!.file;
+  const files = new Set<string>([failedFile]);
+  for (let j = failedAt + 1; j < edits.length; j++) files.add(edits[j]!.file);
+  return files;
+}
+
+/**
+ * Revert the failed file and all files of later edits to their original content.
+ * Returns the files whose content was actually rolled back (i.e. were written before).
+ */
+function rollbackFiles(
+  failedAt: number,
+  edits: EditObject[],
+  fileStates: Map<string, { original: string; current: string; eol: string }>,
+  writtenFiles: Set<string>,
+): Set<string> {
+  const targets = rollbackTargets(failedAt, edits);
+  const reverted = new Set<string>();
+  for (const [file, state] of fileStates) {
+    if (!targets.has(file)) continue;
+    try {
+      fs.writeFileSync(file, state.original, "utf-8");
+      if (writtenFiles.has(file)) reverted.add(file);
+    } catch { /* best effort */ }
+  }
+  return reverted;
+}
+
+/**
+ * Build a BatchError with explicit machine-readable fields and a human message
+ * that states plainly whether anything was written to disk.
+ */
+function buildFailure(
+  error: string,
+  failedAt: number,
+  edits: EditObject[],
+  preview: PreviewEntry[],
+  appliedIndexes: Set<number>,
+  revertedFiles: Set<string>,
+): BatchError {
+  padPreview(preview, edits, preview.length, `not evaluated — batch stopped at edit #${failedAt + 1}`);
+  const finalPreview = preview.map((entry, i) => ({
+    ...entry,
+    applied: appliedIndexes.has(i) && !revertedFiles.has(edits[i]!.file),
+  }));
+  const written = [...new Set([...appliedIndexes].map((i) => edits[i]!.file))].filter((f) => !revertedFiles.has(f));
+  const appliedEdits = [...appliedIndexes].filter((i) => !revertedFiles.has(edits[i]!.file)).length;
+  const reverted = [...revertedFiles];
+  const nothingWritten = written.length === 0;
+  const position = `edit #${failedAt + 1} of ${edits.length}`;
+  const message = nothingWritten
+    ? `VALIDATION FAILED on ${position} — NO edits were written to disk (validation-first: nothing is written until every edit validates). Reason: ${error}`
+    : `VALIDATION FAILED on ${position} — partial rollback: ${appliedEdits} edit(s) kept in ${written.length} file(s) [${written.join(", ")}]; ${reverted.length} file(s) reverted [${reverted.join(", ")}]. Reason: ${error}`;
+  return {
+    error,
+    failedAt,
+    reason: "validation_failed",
+    message,
+    appliedEdits,
+    written,
+    reverted,
+    nothingWritten,
+    preview: finalPreview,
+  };
+}
+
 /**
  * Validate all edits first. If any fail, return error — NO files modified.
  * On success in non-dryRun mode, apply with rollback on failure.
@@ -76,12 +185,14 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
   // the search string may be created by a previous edit in the batch.
   // Phase 2 will re-validate with proper sequential state.
   const filesSeen = new Set<string>();
+  const noneApplied = new Set<number>(); // Phase 1 writes nothing — no edit can be marked applied
+  const nothingReverted = new Set<string>();
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i]!;
     let content: string;
     try { content = fs.readFileSync(edit.file, "utf-8"); } catch {
-      preview.push({ file: edit.file, action: "error", matchCount: 0, error: `Cannot read file: ${edit.file}`, description: edit.description });
-      return { error: `Cannot read file: ${edit.file}`, failedAt: i, preview };
+      preview.push(errorEntry(edit.file, 0, `Cannot read file: ${edit.file}`, edit.description));
+      return buildFailure(`Cannot read file: ${edit.file}`, i, edits, preview, noneApplied, nothingReverted);
     }
     const { normalized } = normalizeLineEndings(content);
     const excludeRanges = edit.excludePatterns && edit.excludePatterns.length > 0
@@ -93,21 +204,37 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
       // If there was a previous edit on the same file, the search string may
       // be created by that edit. Skip validation — Phase 2 will re-check.
       if (filesSeen.has(edit.file)) {
-        preview.push({ file: edit.file, action: "edit", matchCount: 0, description: `${edit.description ?? "edit"} (deferred — depends on previous edit)` });
+        preview.push(pendingEntry(edit.file, 0, `${edit.description ?? "edit"} (deferred — depends on previous edit)`));
         continue;
       }
-      preview.push({ file: edit.file, action: "error", matchCount: 0, error: `search string not found in ${edit.file}`, description: edit.description });
-      return { error: `search string not found in ${edit.file}`, failedAt: i, preview };
+      const reason = `search string not found in ${edit.file}`;
+      preview.push(errorEntry(edit.file, 0, reason, edit.description));
+      return buildFailure(reason, i, edits, preview, noneApplied, nothingReverted);
     }
     if (count > 1 && !edit.replaceAll) {
-      preview.push({ file: edit.file, action: "error", matchCount: count, error: `search string found ${count} times in ${edit.file} (replaceAll: false)`, description: edit.description });
-      return { error: `search string found ${count} times in ${edit.file} (replaceAll: false)`, failedAt: i, preview };
+      const reason = `search string found ${count} times in ${edit.file} (replaceAll: false)`;
+      preview.push(errorEntry(edit.file, count, reason, edit.description));
+      return buildFailure(reason, i, edits, preview, noneApplied, nothingReverted);
     }
-    preview.push({ file: edit.file, action: "edit", matchCount: count, description: edit.description });
+    preview.push(pendingEntry(edit.file, count, edit.description));
     filesSeen.add(edit.file);
   }
 
-  if (dryRun) return { dryRun: true, totalEdits: edits.length, validated: edits.length, preview };
+  if (dryRun) {
+    const deferred = preview.filter((p) => p.action === "edit" && p.matchCount === 0).length;
+    return {
+      dryRun: true,
+      totalEdits: edits.length,
+      validated: edits.length,
+      appliedEdits: 0,
+      written: [],
+      message:
+        `DRY RUN — all ${edits.length} edit(s) validated` +
+        (deferred > 0 ? ` (${deferred} deferred — search string comes from an earlier edit in the same batch)` : "") +
+        "; NO files were written (call again with dryRun: false to apply).",
+      preview,
+    };
+  }
 
   // Phase 2: Apply sequentially with per-edit validation and partial rollback.
   // Each edit is validated against the CURRENT file state (after previous edits),
@@ -115,6 +242,8 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
   // On failure: rollback only files modified by the failed edit and later edits,
   // preserving successfully completed edits on other files.
   const fileStates = new Map<string, { original: string; current: string; eol: string }>();
+  const appliedIndexes = new Set<number>();
+  const writtenFiles = new Set<string>();
   try {
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i]!;
@@ -130,33 +259,15 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
       const count = excludeRanges.length > 0 && edit.replaceAll
         ? countReplacableOccurrences(state.current, edit.search, excludeRanges)
         : countOccurrences(state.current, edit.search);
-      if (count === 0) {
+      if (count === 0 || (count > 1 && !edit.replaceAll)) {
+        const reason = count === 0
+          ? `search string not found in ${edit.file} (after previous edits)`
+          : `search string found ${count} times in ${edit.file} (replaceAll: false)`;
         // Partial rollback: only revert files modified by this edit and later edits.
         // Files successfully modified by earlier edits are preserved.
-        const filesToRevert = new Set<string>();
-        filesToRevert.add(edit.file);
-        for (let j = i + 1; j < edits.length; j++) {
-          if (edits[j]!.file !== edit.file) filesToRevert.add(edits[j]!.file);
-        }
-        for (const [file, st] of fileStates) {
-          if (filesToRevert.has(file)) {
-            try { fs.writeFileSync(file, st.original, "utf-8"); } catch { /* best effort */ }
-          }
-        }
-        return { error: `search string not found in ${edit.file} (after previous edits)`, failedAt: i, preview };
-      }
-      if (count > 1 && !edit.replaceAll) {
-        const filesToRevert = new Set<string>();
-        filesToRevert.add(edit.file);
-        for (let j = i + 1; j < edits.length; j++) {
-          if (edits[j]!.file !== edit.file) filesToRevert.add(edits[j]!.file);
-        }
-        for (const [file, st] of fileStates) {
-          if (filesToRevert.has(file)) {
-            try { fs.writeFileSync(file, st.original, "utf-8"); } catch { /* best effort */ }
-          }
-        }
-        return { error: `search string found ${count} times in ${edit.file} (replaceAll: false)`, failedAt: i, preview };
+        const revertedFiles = rollbackFiles(i, edits, fileStates, writtenFiles);
+        preview[i] = errorEntry(edit.file, count, reason, edit.description);
+        return buildFailure(reason, i, edits, preview, appliedIndexes, revertedFiles);
       }
       const newContent = excludeRanges.length > 0 && edit.replaceAll
         ? replaceAllExcluding(state.current, edit.search, edit.replace, excludeRanges)
@@ -165,16 +276,41 @@ export function batchApplyEdits(edits: EditObject[], options: BatchOptions = {})
           : state.current.replace(edit.search, edit.replace);
       state.current = newContent; // accumulate for next edit on same file
       fs.writeFileSync(edit.file, restoreLineEndings(newContent, state.eol), "utf-8");
+      appliedIndexes.add(i);
+      writtenFiles.add(edit.file);
     }
   } catch (err) {
-    // Rollback only files that were modified
+    // Rollback every file touched by this run
+    const reverted = new Set<string>();
     for (const [file, state] of fileStates) {
-      try { fs.writeFileSync(file, state.original, "utf-8"); } catch { /* best effort */ }
+      try {
+        fs.writeFileSync(file, state.original, "utf-8");
+        if (writtenFiles.has(file)) reverted.add(file);
+      } catch { /* best effort */ }
     }
-    return { error: `Write failed: ${err}`, failedAt: -1, preview };
+    return {
+      error: `Write failed: ${err}`,
+      failedAt: -1,
+      reason: "write_failed",
+      message: `WRITE FAILED — every modified file was reverted (${reverted.size} file(s)); NO net changes are on disk. Reason: ${err}`,
+      appliedEdits: 0,
+      written: [],
+      reverted: [...reverted],
+      nothingWritten: true,
+      preview: preview.map((entry) => ({ ...entry, applied: false })),
+    };
   }
 
-  return { dryRun: false, totalEdits: edits.length, validated: edits.length, preview };
+  const written = [...writtenFiles];
+  return {
+    dryRun: false,
+    totalEdits: edits.length,
+    validated: edits.length,
+    appliedEdits: appliedIndexes.size,
+    written,
+    message: `Applied ${appliedIndexes.size} of ${edits.length} edit(s) to ${written.length} file(s) — all changes are on disk.`,
+    preview: preview.map((entry, i) => ({ ...entry, applied: appliedIndexes.has(i) })),
+  };
 }
 
 function countOccurrences(text: string, search: string): number {

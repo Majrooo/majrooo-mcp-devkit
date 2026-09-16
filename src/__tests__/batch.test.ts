@@ -332,3 +332,112 @@ describe("batchApplyEdits", () => {
     expect(fs.readFileSync(f, "utf-8")).toBe("const A = 1; const B = 2;");
   });
 });
+
+describe("batchApplyEdits — explicit applied/written reporting", () => {
+  let tmp: string;
+  afterEach(() => { if (tmp) cleanupDir(tmp); tmp = ""; });
+
+  it("validation failure: reports appliedEdits 0 + nothingWritten and pads preview 1:1", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "a.ts", "const X = 1;");
+    const f2 = createTmpFile(tmp, "b.ts", "const Y = 2;");
+    const f3 = createTmpFile(tmp, "c.ts", "const Z = 3;");
+    const result = batchApplyEdits([
+      { file: f1, search: "X", replace: "A" },
+      { file: f2, search: "NOTFOUND", replace: "B" },
+      { file: f3, search: "Z", replace: "C" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.reason).toBe("validation_failed");
+    expect(result.appliedEdits).toBe(0);
+    expect(result.written).toEqual([]);
+    expect(result.reverted).toEqual([]);
+    expect(result.nothingWritten).toBe(true);
+    expect(result.message).toContain("VALIDATION FAILED on edit #2 of 3");
+    expect(result.message).toContain("NO edits were written to disk");
+    // Preview maps 1:1 to the edits array — no silent "missing" entries
+    expect(result.preview).toHaveLength(3);
+    expect(result.preview.every((p) => p.applied === false)).toBe(true);
+    expect(result.preview[0]!.matchCount).toBe(1);
+    expect(result.preview[2]!.error).toContain("not evaluated");
+    // Nothing written even though edit #1 had validated
+    expect(fs.readFileSync(f1, "utf-8")).toBe("const X = 1;");
+    expect(fs.readFileSync(f3, "utf-8")).toBe("const Z = 3;");
+  });
+
+  it("dry-run: appliedEdits 0 + written [] + every preview entry applied false", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "a.ts", "const X = 1;");
+    const result = batchApplyEdits([
+      { file: f1, search: "X", replace: "A" },
+    ], { dryRun: true });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.appliedEdits).toBe(0);
+    expect(result.written).toEqual([]);
+    expect(result.message).toContain("DRY RUN");
+    expect(result.message).toContain("NO files were written");
+    expect(result.preview.every((p) => p.applied === false)).toBe(true);
+  });
+
+  it("successful apply: appliedEdits, written and per-entry applied reflect the disk", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "a.ts", "const X = 1;");
+    const f2 = createTmpFile(tmp, "b.ts", "const Y = 2;");
+    const result = batchApplyEdits([
+      { file: f1, search: "X", replace: "A" },
+      { file: f2, search: "Y", replace: "B" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(false);
+    if ("error" in result) return;
+    expect(result.appliedEdits).toBe(2);
+    expect(result.written).toEqual([f1, f2]);
+    expect(result.message).toContain("Applied 2 of 2 edit(s) to 2 file(s)");
+    expect(result.preview.every((p) => p.applied === true)).toBe(true);
+  });
+
+  it("partial rollback: written/reverted/appliedEdits match the files left on disk", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "a.ts", "aaa");
+    const f2 = createTmpFile(tmp, "b.ts", "bbb");
+    const f4 = createTmpFile(tmp, "d.ts", "ddd");
+    const result = batchApplyEdits([
+      { file: f1, search: "aaa", replace: "AAA" },
+      { file: f2, search: "bbb", replace: "BBB" },
+      { file: f1, search: "NOTEXIST", replace: "CCC" },
+      { file: f4, search: "ddd", replace: "DDD" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.reason).toBe("validation_failed");
+    expect(result.nothingWritten).toBe(false);
+    expect(result.message).toContain("partial rollback");
+    expect(result.appliedEdits).toBe(1);
+    expect(result.written).toEqual([f2]);
+    // Only files that were actually written are reported as reverted
+    expect(result.reverted).toEqual([f1]);
+    expect(result.preview[0]!.applied).toBe(false);
+    expect(result.preview[1]!.applied).toBe(true);
+    expect(result.preview[2]!.applied).toBe(false);
+    expect(result.preview[3]!.applied).toBe(false);
+    expect(fs.readFileSync(f2, "utf-8")).toBe("BBB");
+  });
+
+  it("preview stays 1:1 with edits on non-existent file failure", () => {
+    tmp = tmpDir();
+    const f1 = createTmpFile(tmp, "a.ts", "const X = 1;");
+    const missing = path.join(tmp, "missing.ts");
+    const result = batchApplyEdits([
+      { file: f1, search: "X", replace: "A" },
+      { file: missing, search: "M", replace: "N" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.preview).toHaveLength(2);
+    expect(result.preview[1]!.error).toContain("Cannot read file");
+    expect(result.nothingWritten).toBe(true);
+    expect(result.appliedEdits).toBe(0);
+    expect(fs.readFileSync(f1, "utf-8")).toBe("const X = 1;");
+  });
+});

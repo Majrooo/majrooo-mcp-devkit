@@ -8,10 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `batch_apply_edits`: explicit machine-readable outcome — every response now carries `message` (human summary), `appliedEdits` (edits whose changes are on disk), `written` (files changed on disk) and `applied: true|false` on each `preview` entry. Failure responses additionally carry `reason` (`validation_failed` | `write_failed`), `reverted` (files rolled back) and `nothingWritten`. A validation failure now says plainly `VALIDATION FAILED on edit #N of M — NO edits were written to disk` instead of returning a preview that looks like a partial success. The MCP tool result is the message followed by the JSON payload.
+- `batch_apply_edits`: preview is padded to map 1:1 to the `edits` array — edits that were never reached get an `action: "error"` entry with `not evaluated — batch stopped at edit #N`.
 - `batch_apply_edits`: `excludePatterns` parameter — when `replaceAll` is used with `excludePatterns`, occurrences inside excluded regions (e.g. `#[cfg(test)]` blocks) are skipped. Handles annotation-on-separate-line with 5-line lookahead for opening brace.
 - `batch_apply_edits`: sequential validation in Phase 2 — each edit is re-validated against current file state (after previous edits) with rollback on failure. Phase 1 defers validation for chained edits on same file.
 - `findEscapeReason()`: optional `cwd` parameter — when a command contains both `git -C`/`--git-dir`/`--work-tree` and a cd/pushd escape pattern, the function checks if the git path resolves inside `cwd` before flagging as escape. `safetyCheck()` now passes `cwd` to `findEscapeReason()`.
 - 9 new tests (total 317, up from 308)
+- 5 new tests for explicit `batch_apply_edits` outcome reporting (total 322)
 
 ### Changed
 - `resolveFilePath()` multi-root fallback now triggers even when `cwd` is provided but the file doesn't exist at the resolved location. Scans all allowed roots for the relative path — 1 match auto-resolves, 2+ shows disambiguation error.
@@ -25,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `batch_apply_edits`: partial rollback — when a chained edit fails, only files modified by the failed edit and subsequent edits are reverted. Files successfully modified by earlier edits are preserved (was: full atomic rollback lost all valid edits).
 - `extract_code_block`: relative and absolute paths now resolve correctly for alias-registered projects (was returning "Cannot read file" for files within the project).
 - `run_command_grep`: zero matches with non-zero exit code now returns empty result instead of error.
+- `batch_apply_edits`: validation-failure response was ambiguous — the returned `preview` showed `action: "edit", matchCount: 1` for edits that had validated while no edit was written at all, so callers could not tell that the batch was a complete no-op. The response now states `VALIDATION FAILED on edit #N of M — NO edits were written to disk` plus machine-readable `appliedEdits`, `written`, `reverted`, `nothingWritten` and per-entry `applied`.
 - `extract_code_block`: relative paths now resolve across all allowed roots even when `cwd` is provided.
 
 ### Known Limitations (documented)
