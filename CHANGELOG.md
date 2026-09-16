@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.2.0] - 2026-09-16
+
 ### Added
 - `close_feedback`: closing an entry now also moves **every closed entry** out of the active log into `.mcp/FEEDBACK_ARCHIVE.md`, so `.mcp/FEEDBACK.md` keeps holding open items only (it had grown to 39 entries / 65 KB). The move is append-first (block written to the archive before it is removed from the log, so a crash can at most duplicate, never lose an entry), idempotent (entries already archived are skipped) and self-healing (entries closed before this feature are migrated with the next close). `close_feedback` returns `archived` (IDs moved) and `archivePath`.
 - `list_feedback`: new `archived` parameter — `true` lists `.mcp/FEEDBACK_ARCHIVE.md` (closed entries) instead of the active log; all existing filters (`type`, `tool`, `status`) apply to the archive too.
