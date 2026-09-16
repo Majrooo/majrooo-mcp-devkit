@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  # The suite used to be Windows-only (hardcoded D:\... / Z:\... fixtures are
+  # relative paths on POSIX). It now builds every fixture from os.tmpdir(), so
+  # both platforms must stay green — this job is what keeps that honest.
+  test:
+    name: "build + test (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  # Same suite with an explicit project registry: ALLOWED_ROOTS / PROJECT_ALIASES
+  # are read from the environment at import time, so the tests must also pass
+  # when MCP_* is set (previously only the author's local env was exercised).
+  test-with-env:
+    name: "build + test (ubuntu-latest, MCP_* registry set)"
+    runs-on: ubuntu-latest
+    env:
+      MCP_PROJECT_ROOT: ${{ github.workspace }}
+      MCP_EXTRA_ROOTS: ${{ runner.temp }}
+      MCP_PROJECT_NAMES: "${{ runner.temp }}=TempProject"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
