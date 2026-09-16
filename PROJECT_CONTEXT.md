@@ -37,7 +37,7 @@
 4. `run_command_grep` — run a command and return only lines matching a case-insensitive regex (Windows grep replacement).
 5. `list_allowed_roots` — list registered roots / concrete projects usable as `cwd` (configuration only).
 6. `resolve_cwd` — verify a path or friendly project name against the allowed roots (configuration only); returns `exists` indicating whether the resolved directory exists on disk.
-7. `universal_find_references` — find all occurrences of a symbol across a workspace (read-only, structured output with optional language-aware role detection).
+7. `universal_find_references` — find all occurrences of a symbol across a workspace (read-only, structured output with optional language-aware role detection). Without `cwd` every registered root is searched: nested roots are pruned and files are deduplicated by real path, so each match is listed and counted once (`totalMatches` always equals the listed matches).
 8. `extract_code_block` — extract the full text of a function/struct/class from a file (annotation-aware, string/comment-safe bracket matching).
 9. `split_file_by_declarations` — split a large file into multiple smaller files based on top-level declarations (dryRun default, index generation, `cwd` for relative paths).
 10. `batch_apply_edits` — apply multiple file edits with partial rollback on failure (preserves earlier successful edits when a later edit fails) (validation before write, dryRun default, `excludePatterns` for replaceAll scoping). Every response carries an explicit outcome: `message`, `appliedEdits`, `written`, per-preview-entry `applied`; failures add `reason`, `reverted`, `nothingWritten` and a `VALIDATION FAILED … NO edits were written to disk` message.

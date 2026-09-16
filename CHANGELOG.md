@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_No changes yet._
+### Added
+- `universal_find_references`: with more than one searched root the report now lists the searched roots, marks the root each file path is relative to (`file.rs  (relative to <root>)`) and states how many duplicate files were skipped — so a path like `project/src/lib.rs` can no longer be mistaken for a second copy of `src/lib.rs`.
+- `universal_find_references`: the audit log entry now records `searchedRoots` and `duplicatesDropped`.
+- 10 new tests (`symbols.test.ts`): nested-root pruning, duplicate detection via a junction, sibling roots with an identical relative path, single-root parity with `universalFindReferences`, and the report format (total 348).
+
+### Fixed
+- `universal_find_references`: **every match was reported twice when `cwd` was omitted** — all registered roots were searched, and because the registry contains nested pairs (`D:\W\TS` + the projects inside it, `…\Rust` + `…\Rust\pixel-blaster-engine`) the same file was reachable through two roots. The dedup key was the *root-relative* path (different per root) and `totalMatches` summed every root, so `ColAlign` reported **56 matches for 28 real ones**, the listing was truncated mid-output, and the two path prefixes made one file look like two. Nested roots are now pruned (`pruneNestedRoots`), files are deduplicated by resolved real path, and `totalMatches` is the sum over the files actually listed. Distinct files that exist in two sibling roots under the same relative path are no longer silently dropped.
+- `universal_find_references`: `cwd` was documented as "default: primary project root" while the implementation searched every registered root — the description now matches the behaviour (tool description, `cwd` parameter, `help_tool`, README).
 
 ## [0.2.0] - 2026-09-16
 

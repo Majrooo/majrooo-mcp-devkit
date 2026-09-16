@@ -2,12 +2,12 @@
 
 [![Version](https://img.shields.io/github/v/release/Majrooo/majrooo-mcp-devkit)](https://github.com/Majrooo/majrooo-mcp-devkit/releases)
 [![License](https://img.shields.io/github/license/Majrooo/majrooo-mcp-devkit)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-306%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-348%20passing-brightgreen)](#)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-blue)](#)
 [![M8ven Verified](https://m8ven.ai/badge/mcp/majrooo-majrooo-mcp-devkit-1o7w0p?variant=verified&v=643cba735869b4d4839f4a2109162cb0)](https://m8ven.ai/mcp/majrooo-majrooo-mcp-devkit-1o7w0p)
 
 > **Repository Access:** PUBLIC  
-> **Version:** 0.2.0 · **Tests:** 338 passing · **License:** GPL-3.0-or-later
+> **Version:** 0.2.0 · **Tests:** 348 passing · **License:** GPL-3.0-or-later
 
 MCP server that provides safe command execution and code refactoring tools for Cline/Claude Desktop.
 
@@ -80,11 +80,28 @@ Find all occurrences of a symbol across a workspace. Returns structured output w
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `symbol` | string | — | Symbol to search for (word-boundary match) |
-| `cwd` | string | primary root | Workspace root to search |
+| `cwd` | string | all registered roots | Workspace root to search. When omitted, all registered roots are searched (nested roots pruned, duplicate files removed) |
 | `fileExtensions` | string[] | common source extensions | Restrict to these extensions |
 | `excludePatterns` | string[] | `.git`, `node_modules`, `target`, ... | Directories to skip |
 | `contextLines` | number | 1 | Lines of context around each match |
 | `language` | string | — (disabled) | Optional: `"rust"`, `"typescript"`, `"python"`, or `"cpp"` — enables role detection (declaration/import/usage) |
+
+**Multi-root search (no `cwd`):** every registered root is searched. A root nested inside another root is pruned — the outer root already covers it — and files are deduplicated by resolved real path, so the same match is never listed or counted twice. When more than one root is searched, the report states them and, for each file group, the root its relative path is based on:
+
+```
+Symbol: ColAlign
+Total matches: 28
+Searched roots (3):
+  - D:\W\TS
+  - d:\Users Data\jox\My Documents\Python
+  - d:\Users Data\jox\My Documents\Rust
+Duplicates skipped: 2 (same file reachable through a nested root)
+
+pixel-blaster-engine/engine_bevy/src/lib.rs  (relative to d:\Users Data\jox\My Documents\Rust)
+  Line 72:12 [usage] — pub use ui_panel::{
+```
+
+A path like `project/src/lib.rs` therefore always belongs to exactly one root — it is never a second copy of `src/lib.rs`. With an explicit `cwd` only that root is searched and the report keeps its compact form (`path/file.rs:`).
 
 ### `extract_code_block`
 

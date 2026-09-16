@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
+import fs from "fs";
+import os from "os";
 import path from "path";
-import { universalFindReferences, extractCodeBlock } from "../symbols.js";
+import {
+  collectReferencesAcrossRoots,
+  extractCodeBlock,
+  formatReferencesReport,
+  pruneNestedRoots,
+  universalFindReferences,
+} from "../symbols.js";
 
 const FIXTURES = path.resolve(__dirname, "fixtures");
 
@@ -265,5 +273,188 @@ describe("extractCodeBlock", () => {
     } finally {
       fs.unlinkSync(tmpFile);
     }
+  });
+});
+
+// ── multi-root aggregation (universal_find_references) ──────
+
+const ROOTED_SYMBOL = "RootedWidget";
+
+/** Create a temp tree: `{ "relative/path.rs": ["line", ...] }` → root dir. */
+function writeTree(files: Record<string, string[]>): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "collect-refs-test-"));
+  for (const [rel, lines] of Object.entries(files)) {
+    const full = path.join(root, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, lines.join("\n"), "utf-8");
+  }
+  return root;
+}
+
+describe("pruneNestedRoots", () => {
+  it("keeps only the outermost root", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "prune-roots-test-"));
+    const nested = path.join(base, "project");
+    fs.mkdirSync(path.join(nested, "src"), { recursive: true });
+    expect(pruneNestedRoots([base, nested])).toEqual([base]);
+    expect(pruneNestedRoots([nested, base])).toEqual([base]);
+  });
+
+  it("is a no-op for non-nested roots and removes duplicates", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "prune-roots-test-"));
+    const a = path.join(base, "a");
+    const b = path.join(base, "b");
+    fs.mkdirSync(a, { recursive: true });
+    fs.mkdirSync(b, { recursive: true });
+    expect(pruneNestedRoots([a, b])).toEqual([a, b]);
+    expect(pruneNestedRoots([a, a])).toEqual([a]);
+  });
+});
+
+describe("collectReferencesAcrossRoots", () => {
+  it("lists a file reachable through a nested root exactly once", () => {
+    // The reported bug: two nested roots (parent + project inside it) listed
+    // every file twice and reported 2× the real match count.
+    const parent = writeTree({
+      "notes.rs": ["// RootedWidget mentioned once"],
+      "project/src/lib.rs": [
+        "pub use widget::RootedWidget;",
+        "fn use_it() -> RootedWidget { RootedWidget::new() }",
+      ],
+    });
+
+    const result = collectReferencesAcrossRoots(
+      [parent, path.join(parent, "project")],
+      ROOTED_SYMBOL,
+      { fileExtensions: [".rs"] },
+    );
+
+    expect(result.roots).toEqual([parent]);
+    expect(result.duplicatesDropped).toBe(0);
+    expect(result.files).toHaveLength(2);
+    expect(result.files.map((f) => f.file).sort()).toEqual(["notes.rs", "project/src/lib.rs"]);
+    expect(result.totalMatches).toBe(3);
+  });
+
+  it("keeps totalMatches consistent with the listed matches", () => {
+    const parent = writeTree({
+      "notes.rs": ["// RootedWidget mentioned once"],
+      "project/src/lib.rs": ["pub use widget::RootedWidget;"],
+    });
+    const result = collectReferencesAcrossRoots(
+      [parent, path.join(parent, "project")],
+      ROOTED_SYMBOL,
+      { fileExtensions: [".rs"] },
+    );
+    const listed = result.files.reduce((sum, f) => sum + f.matches.length, 0);
+    expect(result.totalMatches).toBe(listed);
+  });
+
+  it("keeps distinct files that share the same relative path in sibling roots", () => {
+    // The relative path is NOT a valid identity (the old dedup key) — both
+    // files must survive.
+    const base = writeTree({
+      "a/src/dup.rs": ["// RootedWidget in a"],
+      "b/src/dup.rs": ["// RootedWidget in b"],
+    });
+    const result = collectReferencesAcrossRoots(
+      [path.join(base, "a"), path.join(base, "b")],
+      ROOTED_SYMBOL,
+      { fileExtensions: [".rs"] },
+    );
+    expect(result.duplicatesDropped).toBe(0);
+    expect(result.files).toHaveLength(2);
+    expect(result.files.every((f) => f.file === "src/dup.rs")).toBe(true);
+    expect(result.totalMatches).toBe(2);
+  });
+
+  it("deduplicates two paths that resolve to the same file (junction)", () => {
+    const real = writeTree({ "src/lib.rs": ["// RootedWidget"] });
+    const link = `${real}-link`;
+    try {
+      fs.symlinkSync(real, link, "junction");
+    } catch {
+      return; // junction not available (platform / permissions) — nothing to assert
+    }
+    const result = collectReferencesAcrossRoots([real, link], ROOTED_SYMBOL, {
+      fileExtensions: [".rs"],
+    });
+    expect(result.files).toHaveLength(1);
+    expect(result.duplicatesDropped).toBe(1);
+    expect(result.totalMatches).toBe(1);
+  });
+
+  it("matches universalFindReferences for a single root", () => {
+    const parent = writeTree({
+      "notes.rs": ["// RootedWidget mentioned once"],
+      "project/src/lib.rs": ["pub use widget::RootedWidget;"],
+    });
+    const single = universalFindReferences(ROOTED_SYMBOL, parent, { fileExtensions: [".rs"] });
+    const collected = collectReferencesAcrossRoots([parent], ROOTED_SYMBOL, {
+      fileExtensions: [".rs"],
+    });
+    expect(collected.totalMatches).toBe(single.totalMatches);
+    expect(collected.files.map((f) => f.file).sort()).toEqual(
+      single.files.map((f) => f.file).sort(),
+    );
+    expect(collected.duplicatesDropped).toBe(0);
+  });
+});
+
+describe("formatReferencesReport", () => {
+  it("keeps the legacy shape for a single searched root", () => {
+    const root = writeTree({ "src/solo.rs": ["pub fn solo() {}   // SoloWidget"] });
+    const report = formatReferencesReport(
+      collectReferencesAcrossRoots([root], "SoloWidget", { fileExtensions: [".rs"] }),
+    );
+    expect(
+      report.startsWith("Symbol: SoloWidget\nTotal matches: 1\n\nsrc/solo.rs:\n  Line 1:"),
+    ).toBe(true);
+    expect(report).not.toContain("Searched roots");
+    expect(report).not.toContain("(relative to ");
+  });
+
+  it("lists the searched roots and the root each file path is relative to", () => {
+    const report = formatReferencesReport({
+      symbol: "ColAlign",
+      roots: ["D:\\W\\TS", "d:\\Users Data\\jox\\My Documents\\Rust"],
+      totalMatches: 2,
+      duplicatesDropped: 2,
+      files: [
+        {
+          file: "proj/src/lib.rs",
+          root: "d:\\Users Data\\jox\\My Documents\\Rust",
+          matches: [{ line: 72, column: 12, role: "usage", context: "pub use ui_panel::{" }],
+        },
+        {
+          file: "majrooo-mcp-devkit/src/index.ts",
+          root: "D:\\W\\TS",
+          matches: [{ line: 5, column: 3, context: "const x = 1;" }],
+        },
+      ],
+    });
+    expect(report).toContain("Symbol: ColAlign");
+    expect(report).toContain("Searched roots (2):");
+    expect(report).toContain("  - D:\\W\\TS");
+    expect(report).toContain("  - d:\\Users Data\\jox\\My Documents\\Rust");
+    expect(report).toContain("Duplicates skipped: 2 (same file reachable through a nested root)");
+    expect(report).toContain(
+      "proj/src/lib.rs  (relative to d:\\Users Data\\jox\\My Documents\\Rust)",
+    );
+    expect(report).toContain("majrooo-mcp-devkit/src/index.ts  (relative to D:\\W\\TS)");
+    expect(report).toContain("  Line 72:12 [usage] — pub use ui_panel::{");
+  });
+
+  it("omits the duplicates note when nothing was skipped", () => {
+    const report = formatReferencesReport({
+      symbol: "X",
+      roots: ["a", "b"],
+      totalMatches: 0,
+      duplicatesDropped: 0,
+      files: [],
+    });
+    expect(report).toContain("Searched roots (2):");
+    expect(report).not.toContain("Duplicates skipped");
+    expect(report).toContain("(no matches found)");
   });
 });

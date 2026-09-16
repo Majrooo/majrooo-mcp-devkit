@@ -36,7 +36,11 @@ import {
 } from "./safety.js";
 import { stripAnsi } from "./output.js";
 import { textResult, jsonResult } from "./format.js";
-import { universalFindReferences, extractCodeBlock, type FileReferences } from "./symbols.js";
+import {
+  collectReferencesAcrossRoots,
+  extractCodeBlock,
+  formatReferencesReport,
+} from "./symbols.js";
 import { splitFileByDeclarations } from "./split.js";
 import { batchApplyEdits } from "./batch.js";
 import { generateModuleSkeleton } from "./skeleton.js";
@@ -346,10 +350,12 @@ server.tool(
   "universal_find_references",
   "Find all occurrences of a symbol across a workspace. Structured output with file, line, column, context. " +
   "Optional language-aware mode (rust/typescript/python/cpp) adds role annotations: declaration, import, or usage. " +
-  "Use this tool BEFORE any refactoring session to understand what will break when a symbol is renamed or moved.",
+  "Use this tool BEFORE any refactoring session to understand what will break when a symbol is renamed or moved. " +
+  "When cwd is omitted, ALL registered roots are searched: nested roots are pruned and files are deduplicated " +
+  "by real path, so no match is listed or counted twice.",
   {
     symbol: z.string().describe("Symbol to search for (word-boundary match)"),
-    cwd: z.string().optional().describe("Workspace root to search (default: primary project root)"),
+    cwd: z.string().optional().describe("Workspace root to search (default: all registered roots — nested roots pruned, duplicates removed)"),
     fileExtensions: z.array(z.string()).optional().describe("Restrict to these extensions (default: common source extensions)"),
     excludePatterns: z.array(z.string()).optional().describe("Directories to skip (default: .git, node_modules, target, build, dist, __pycache__)"),
     contextLines: z.number().optional().describe("Lines of context around each match (default: 1)"),
@@ -378,44 +384,28 @@ server.tool(
       registration = resolved.registration;
     }
 
-    // Search: single root or all roots
+    // Search: one root (explicit cwd) or every registered root. Nested roots
+    // are pruned and files deduplicated by real path inside the collector, so
+    // nothing is listed or counted twice.
     const roots = resolvedCwd ? [resolvedCwd] : ALLOWED_ROOTS;
-    const seenFiles = new Set<string>();
-    const mergedFiles: FileReferences[] = [];
-    let totalMatches = 0;
-
-    for (const root of roots) {
-      const result = universalFindReferences(symbol, root, {
-        fileExtensions,
-        excludePatterns,
-        contextLines,
-        language,
-      });
-      for (const f of result.files) {
-        if (!seenFiles.has(f.file)) {
-          seenFiles.add(f.file);
-          mergedFiles.push(f);
-        }
-      }
-      totalMatches += result.totalMatches;
-    }
+    const collected = collectReferencesAcrossRoots(roots, symbol, {
+      fileExtensions,
+      excludePatterns,
+      contextLines,
+      language,
+    });
 
     // Audit log
-    await writeAuditLog({ tool: "universal_find_references", symbol, cwd: resolvedCwd ?? "all_roots", totalMatches });
+    await writeAuditLog({
+      tool: "universal_find_references",
+      symbol,
+      cwd: resolvedCwd ?? "all_roots",
+      searchedRoots: collected.roots.length,
+      totalMatches: collected.totalMatches,
+      duplicatesDropped: collected.duplicatesDropped,
+    });
 
-    // Format output as readable text
-    const out: string[] = [`Symbol: ${symbol}`, `Total matches: ${totalMatches}`, ""];
-    for (const f of mergedFiles) {
-      out.push(f.file + ":");
-      for (const m of f.matches) {
-        const role = m.role ? ` [${m.role}]` : "";
-        out.push(`  Line ${m.line}:${m.column}${role} — ${m.context.trim()}`);
-      }
-      out.push("");
-    }
-    if (mergedFiles.length === 0) out.push("(no matches found)");
-
-    return textResult(out.join("\n"));
+    return textResult(formatReferencesReport(collected));
   },
 );
 
@@ -749,10 +739,10 @@ registerToolInfo("resolve_cwd", "Verifies whether a path or friendly project nam
 );
 
 // Refactoring tools
-registerToolInfo("universal_find_references", "Find all occurrences of a symbol across a workspace. Structured output with file, line, column, context. Optional language-aware role detection.",
+registerToolInfo("universal_find_references", "Find all occurrences of a symbol across a workspace. Structured output with file, line, column, context. Optional language-aware role detection. Without cwd every registered root is searched — nested roots are pruned and duplicate files removed, so each match is listed and counted once.",
   z.object({
     symbol: z.string().describe("Symbol to search for (word-boundary match)"),
-    cwd: z.string().optional().describe("Workspace root to search (default: primary project root)"),
+    cwd: z.string().optional().describe("Workspace root to search (default: all registered roots — nested roots pruned, duplicates removed)"),
     fileExtensions: z.array(z.string()).optional().describe("Restrict to these extensions (default: common source extensions)"),
     excludePatterns: z.array(z.string()).optional().describe("Directories to skip (default: .git, node_modules, target, build, dist, __pycache__)"),
     contextLines: z.number().optional().describe("Lines of context around each match (default: 1)"),

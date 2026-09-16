@@ -182,6 +182,136 @@ export function universalFindReferences(
   return { symbol, totalMatches, files: fileRefs };
 }
 
+// ── Multi-root aggregation (universal_find_references handler) ──
+
+/** File group plus the absolute root its relative path is based on. */
+export interface RootedFileReferences extends FileReferences {
+  root: string;
+}
+
+export interface MultiRootReferencesResult {
+  symbol: string;
+  /** Roots actually searched (nested roots removed — the outer root covers them). */
+  roots: string[];
+  /** Unique matches: the sum of matches in the files that are listed. */
+  totalMatches: number;
+  /** Files, deduplicated by resolved real path. */
+  files: RootedFileReferences[];
+  /** Files dropped because the same real path had already been listed. */
+  duplicatesDropped: number;
+}
+
+/**
+ * Identity key for "the same file": resolved real path, so a file reachable
+ * through two roots (nested root, symlink, junction, different letter case)
+ * is recognised as one file.
+ */
+function realPathKey(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    // Broken link / permission / network share — fall back to a resolved path.
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  }
+}
+
+/**
+ * Drop roots that live inside another root — the outermost root already covers
+ * them, so searching both would scan the same files twice. Roots are resolved
+ * and de-duplicated (case-insensitively on Windows) first.
+ */
+export function pruneNestedRoots(roots: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const root of roots) {
+    const resolved = path.resolve(root);
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(resolved);
+  }
+  return unique.filter((root) =>
+    !unique.some((other) => {
+      if (other === root) return false;
+      const rel = path.relative(other, root);
+      return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+    }),
+  );
+}
+
+/**
+ * Search a symbol across several roots exactly once per file.
+ *
+ * Nested roots are pruned first ({@link pruneNestedRoots}) and the files are
+ * deduplicated by real path, so `totalMatches` always equals the number of
+ * matches that are actually listed — a file reachable through two roots is
+ * never counted (or printed) twice.
+ */
+export function collectReferencesAcrossRoots(
+  roots: string[],
+  symbol: string,
+  options: FindReferencesOptions = {},
+): MultiRootReferencesResult {
+  const searched = pruneNestedRoots(roots);
+  const seen = new Set<string>();
+  const files: RootedFileReferences[] = [];
+  let duplicatesDropped = 0;
+
+  for (const root of searched) {
+    const result = universalFindReferences(symbol, root, options);
+    for (const file of result.files) {
+      const key = realPathKey(path.resolve(root, file.file));
+      if (seen.has(key)) {
+        duplicatesDropped++;
+        continue;
+      }
+      seen.add(key);
+      files.push({ ...file, root });
+    }
+  }
+
+  const totalMatches = files.reduce((sum, f) => sum + f.matches.length, 0);
+  return { symbol, roots: searched, totalMatches, files, duplicatesDropped };
+}
+
+/**
+ * Render a multi-root result as readable text.
+ *
+ * A single searched root keeps the legacy output shape (symbol, total, file
+ * groups). With more than one root the report adds the searched roots and, per
+ * file group, the root its relative path is based on — so a path like
+ * `project/src/lib.rs` can never be mistaken for an extra copy of the code.
+ */
+export function formatReferencesReport(result: MultiRootReferencesResult): string {
+  const out: string[] = [`Symbol: ${result.symbol}`, `Total matches: ${result.totalMatches}`];
+  const multiRoot = result.roots.length > 1;
+
+  if (multiRoot) {
+    out.push(`Searched roots (${result.roots.length}):`);
+    for (const root of result.roots) out.push(`  - ${root}`);
+    if (result.duplicatesDropped > 0) {
+      out.push(
+        `Duplicates skipped: ${result.duplicatesDropped} ` +
+        `(same file reachable through a nested root)`,
+      );
+    }
+  }
+  out.push("");
+
+  for (const f of result.files) {
+    out.push(multiRoot ? `${f.file}  (relative to ${f.root})` : `${f.file}:`);
+    for (const m of f.matches) {
+      const role = m.role ? ` [${m.role}]` : "";
+      out.push(`  Line ${m.line}:${m.column}${role} — ${m.context.trim()}`);
+    }
+    out.push("");
+  }
+  if (result.files.length === 0) out.push("(no matches found)");
+
+  return out.join("\n");
+}
+
 // ── extract_code_block ──────────────────────────────────────
 
 export interface ExtractBlockResult {
