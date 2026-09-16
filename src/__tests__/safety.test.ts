@@ -356,29 +356,50 @@ describe("buildRegistrations / findMatchingRegistration", () => {
 });
 
 describe("resolveCwdRequested", () => {
-  const roots = ["D:\\PROJ_A", "D:\\W", "D:\\python"];
-  const regs = buildRegistrations(roots);
+  // Built from the real temp dir — a hardcoded "D:\\..." literal is a RELATIVE
+  // path on POSIX, which made the original assertions Windows-only.
+  let tmpRoot: string;
+  let projA: string;
+  let nestedRoot: string;
+  let projB: string;
+  let roots: string[];
+  let regs: ReturnType<typeof buildRegistrations>;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "resolve-cwd-test-"));
+    projA = path.join(tmpRoot, "proj-a");
+    nestedRoot = path.join(tmpRoot, "nested");
+    projB = path.join(nestedRoot, "proj-b");
+    fs.mkdirSync(projB, { recursive: true });
+    fs.mkdirSync(projA, { recursive: true });
+    roots = [projA, nestedRoot];
+    regs = buildRegistrations(roots);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
   it("defaults to the primary root when cwd is omitted", () => {
-    const r = resolveCwdRequested(undefined, regs, roots, "D:\\PROJ_A");
+    const r = resolveCwdRequested(undefined, regs, roots, projA);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.cwd).toBe("D:\\PROJ_A");
+    if (r.ok) expect(r.cwd).toBe(projA);
   });
 
   it("resolves a registered cwd", () => {
-    const r = resolveCwdRequested("D:\\W\\TS\\projX", regs, roots, "D:\\PROJ_A");
+    const r = resolveCwdRequested(projB, regs, roots, projA);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.cwd).toBe("D:\\W\\TS\\projX");
+    if (r.ok) expect(r.cwd).toBe(projB);
   });
 
   it("resolves relative cwd against baseDir", () => {
-    const r = resolveCwdRequested("src", regs, roots, "D:\\PROJ_A");
+    const r = resolveCwdRequested("src", regs, roots, projA);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.cwd).toContain("PROJ_A");
+    if (r.ok) expect(r.cwd).toBe(path.join(projA, "src"));
   });
 
   it("rejects unknown cwd with a helpful error", () => {
-    const r = resolveCwdRequested("C:\\Windows", regs, roots, "D:\\PROJ_A");
+    const r = resolveCwdRequested(path.join(tmpRoot, "outside"), regs, roots, projA);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("povolených koreňov");
   });
@@ -760,38 +781,60 @@ describe("bypass attempts — isWithinAllowedDir", () => {
 // ── resolveFilePath ────────────────────────────────────────
 
 describe("resolveFilePath", () => {
-  const roots = ["D:\\W\\TS\\majrooo-mcp-devkit", "D:\\W\\TS\\nase-zasoby"];
-  const regs = buildRegistrations(roots);
+  // Temp-tree based (same pattern as the multi-root fallback block below):
+  // hardcoded Windows literals are relative paths on POSIX → Windows-only tests.
+  let tmpRoot: string;
+  let proj: string;
+  let other: string;
+  let roots: string[];
+  let regs: ReturnType<typeof buildRegistrations>;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "resolve-filepath-test-"));
+    proj = path.join(tmpRoot, "project-a");
+    other = path.join(tmpRoot, "project-b");
+    roots = [proj, other];
+    regs = buildRegistrations(roots);
+    fs.mkdirSync(path.join(proj, "src"), { recursive: true });
+    fs.writeFileSync(path.join(proj, "src", "index.ts"), "export {};", "utf-8");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
   it("returns absolute path as-is when inside allowed root", () => {
-    const r = resolveFilePath("D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
-    expect(r).toEqual({ ok: true, filePath: "D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts" });
+    const absPath = path.join(proj, "src", "index.ts");
+    const r = resolveFilePath(absPath, undefined, regs, roots, proj);
+    expect(r).toEqual({ ok: true, filePath: absPath });
   });
 
   it("resolves relative path against primary root when cwd omitted", () => {
-    const r = resolveFilePath("src/index.ts", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
-    expect(r).toEqual({ ok: true, filePath: "D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts" });
+    const r = resolveFilePath("src/index.ts", undefined, regs, roots, proj);
+    expect(r).toEqual({ ok: true, filePath: path.join(proj, "src", "index.ts") });
   });
 
   it("resolves relative path against provided cwd", () => {
-    const r = resolveFilePath("src/index.ts", "D:\\W\\TS\\majrooo-mcp-devkit", regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
-    expect(r).toEqual({ ok: true, filePath: "D:\\W\\TS\\majrooo-mcp-devkit\\src\\index.ts" });
+    const r = resolveFilePath("src/index.ts", proj, regs, roots, proj);
+    expect(r).toEqual({ ok: true, filePath: path.join(proj, "src", "index.ts") });
   });
 
   it("rejects absolute path outside allowed roots", () => {
-    const r = resolveFilePath("C:\\Windows\\System32\\config.sys", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    const outside = path.join(tmpRoot, "outside", "config.sys");
+    const r = resolveFilePath(outside, undefined, regs, roots, proj);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("nie je v žiadnom povolenom koreni");
   });
 
   it("rejects relative path that resolves outside allowed roots", () => {
-    const r = resolveFilePath("../../etc/passwd", undefined, regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    const escaping = `..${path.sep}..${path.sep}etc${path.sep}passwd`;
+    const r = resolveFilePath(escaping, undefined, regs, roots, proj);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("nie je v žiadnom povolenom koreni");
   });
 
   it("rejects invalid cwd", () => {
-    const r = resolveFilePath("src/index.ts", "C:\\Windows", regs, roots, "D:\\W\\TS\\majrooo-mcp-devkit");
+    const r = resolveFilePath("src/index.ts", path.join(tmpRoot, "outside"), regs, roots, proj);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("povolených koreňov");
   });

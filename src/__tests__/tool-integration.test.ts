@@ -218,12 +218,16 @@ describe("resolve_cwd — path validation", () => {
   });
 
   it("path outside roots fails", () => {
-    const result = resolveCwdRequested("Z:\\totally\\nonexistent\\path");
+    // Built from the real temp dir: a hardcoded "Z:\\..." literal is a RELATIVE
+    // path on POSIX and would resolve inside an allowed root instead.
+    const outside = path.join(os.tmpdir(), "outside-all-roots-xyz");
+    const result = resolveCwdRequested(outside);
     expect(result.ok).toBe(false);
   });
 
   it("directory escape is rejected", () => {
-    const result = resolveCwdRequested("C:\\Windows\\..\\..\\etc");
+    const escaping = `${os.tmpdir()}${path.sep}..${path.sep}..${path.sep}etc`;
+    const result = resolveCwdRequested(escaping);
     expect(result.ok).toBe(false);
   });
 
