@@ -440,4 +440,24 @@ describe("batchApplyEdits — explicit applied/written reporting", () => {
     expect(result.appliedEdits).toBe(0);
     expect(fs.readFileSync(f1, "utf-8")).toBe("const X = 1;");
   });
+
+  it("full rollback: message distinguishes 'written then reverted' from 'nothing written'", () => {
+    tmp = tmpDir();
+    const f = createTmpFile(tmp, "chain.rs", "const MATERIALS: usize = 3;");
+    // All edits target the same file: edit #1 is written, edit #2 fails on it, so the
+    // whole file is rolled back — nothing is left on disk, but writes DID happen.
+    const result = batchApplyEdits([
+      { file: f, search: "MATERIALS", replace: "DEFAULT_MATERIALS" },
+      { file: f, search: "NOTEXIST", replace: "X" },
+    ], { dryRun: false });
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) return;
+    expect(result.appliedEdits).toBe(0);
+    expect(result.written).toEqual([]);
+    expect(result.nothingWritten).toBe(true);
+    expect(result.reverted).toEqual([f]);
+    expect(result.message).toContain("NO net changes were left on disk");
+    expect(result.message).not.toContain("NO edits were written to disk");
+    expect(fs.readFileSync(f, "utf-8")).toBe("const MATERIALS: usize = 3;");
+  });
 });

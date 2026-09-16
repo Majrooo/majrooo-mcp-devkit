@@ -148,13 +148,13 @@ Key fields:
 | `preview[].applied` | `true` only when that specific edit's change is on disk (never `true` in dry-run or after rollback) |
 | `preview[].matchCount` | Occurrences found — informational, **not** proof that anything was written (check `applied`) |
 
-On failure the response also carries `error`, `failedAt`, `reason` (`validation_failed` \| `write_failed`), `reverted` (files rolled back) and `nothingWritten` (`true` = this run left no change on disk at all). Validation failure example:
+On failure the response also carries `error`, `failedAt`, `reason` (`validation_failed` \| `write_failed`), `reverted` (files rolled back) and `nothingWritten` (`true` = this run left no change on disk at all — either nothing was ever written, or everything written was rolled back). Validation failure example:
 
 ```
 VALIDATION FAILED on edit #2 of 3 — NO edits were written to disk (validation-first: nothing is written until every edit validates). Reason: search string not found in D:\proj\b.rs
 ```
 
-Edits that were never evaluated get an explicit `action: "error"` preview entry (`not evaluated — batch stopped at edit #N`), so `preview` always maps 1:1 to the `edits` array. When validation fails on a file that already had a successfully applied edit in the same run (chained edits), the response switches to `partial rollback: N edit(s) kept in … ; M file(s) reverted […]`.
+Edits that were never evaluated get an explicit `action: "error"` preview entry (`not evaluated — batch stopped at edit #N`), so `preview` always maps 1:1 to the `edits` array. When validation fails on a file that already had a successfully applied edit in the same run (chained edits), the response switches to `partial rollback: N edit(s) kept in … ; M file(s) reverted […]`. If every write from the run was rolled back (e.g. all edits chained on one file), `nothingWritten` stays `true` and the message says `NO net changes were left on disk: N edit(s) had been written and M file(s) were rolled back […]` — an honest distinction between "never wrote" and "wrote, then undid".
 
 ### `generate_module_skeleton`
 

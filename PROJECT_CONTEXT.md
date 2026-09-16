@@ -23,7 +23,7 @@
 * **State Management:** N/A (stateless request-response); persistent audit log in `os.tmpdir()/mcp-command-audit.log`.
 * **Styling:** N/A
 * **Language support:** Refactoring tools (`universal_find_references`, `split_file_by_declarations`, `generate_module_skeleton`, `verify_refactor_safety`) support Rust, TypeScript, Python, and C++ (`generate_module_skeleton` supports Rust, TypeScript, Python only). Rust is fully tested in production; others are structurally supported but untested. `extract_code_block` and `batch_apply_edits` are language-agnostic.
-* **Testing:** Vitest — `npm test` (322 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
+* **Testing:** Vitest — `npm test` (323 tests across `output`, `safety`, `format`, `redirect`, `symbols`, `split`, `batch`, `skeleton`, `verify`, `feedback`, `tool-registry`, `handlers`, `tool-integration` suites, run only on `src/__tests__` — `build/` is excluded from the test pattern).
 * **File Structure:**
   * `src/` — TypeScript sources (`index.ts`, `commands.ts`, `helpers.ts`, `safety.ts`, `output.ts`, `format.ts`, `redirect.ts`, `symbols.ts`, `split.ts`, `batch.ts`, `skeleton.ts`, `verify.ts`, `feedback.ts`, `tool-registry.ts`, `__tests__/`)
   * `build/` — compiled JS output from `tsc` (server launched as `node build/index.js`)

@@ -156,9 +156,12 @@ function buildFailure(
   const reverted = [...revertedFiles];
   const nothingWritten = written.length === 0;
   const position = `edit #${failedAt + 1} of ${edits.length}`;
-  const message = nothingWritten
-    ? `VALIDATION FAILED on ${position} — NO edits were written to disk (validation-first: nothing is written until every edit validates). Reason: ${error}`
-    : `VALIDATION FAILED on ${position} — partial rollback: ${appliedEdits} edit(s) kept in ${written.length} file(s) [${written.join(", ")}]; ${reverted.length} file(s) reverted [${reverted.join(", ")}]. Reason: ${error}`;
+  const message = !nothingWritten
+    ? `VALIDATION FAILED on ${position} — partial rollback: ${appliedEdits} edit(s) kept in ${written.length} file(s) [${written.join(", ")}]; ${reverted.length} file(s) reverted [${reverted.join(", ")}]. Reason: ${error}`
+    : appliedIndexes.size > 0
+      // Writes happened but every one of them was rolled back — be precise about it.
+      ? `VALIDATION FAILED on ${position} — NO net changes were left on disk: ${appliedIndexes.size} edit(s) had been written and ${reverted.length} file(s) were rolled back [${reverted.join(", ")}]. Reason: ${error}`
+      : `VALIDATION FAILED on ${position} — NO edits were written to disk (validation-first: nothing is written until every edit validates). Reason: ${error}`;
   return {
     error,
     failedAt,
